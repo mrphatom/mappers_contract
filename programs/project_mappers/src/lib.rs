@@ -59,8 +59,6 @@ pub mod project_mappers {
             amount,
         )?;
 
-        // Note: Because the account macro uses 'close = client', this state change 
-        // happens just before the account data is wiped and rent lamports are reclaimed.
         ctx.accounts.escrow_account.status = JobStatus::Completed;
         Ok(())
     }
@@ -118,8 +116,7 @@ pub struct InitializeJob<'info> {
 
 #[derive(Accounts)]
 pub struct ReleasePayment<'info> {
-    // FIXED: Authority is now strictly constrained to match the stored Oracle public key
-    pub authority: Signer<'info>,
+    pub oracle: Signer<'info>,
     #[account(mut)]
     /// CHECK: Enforced via has_one
     pub freelancer: AccountInfo<'info>,
@@ -128,7 +125,7 @@ pub struct ReleasePayment<'info> {
     pub client: AccountInfo<'info>,
     #[account(
         mut,
-        has_one = authority @ EscrowError::InvalidOracleAuthority, // Gated via the oracle public key
+        has_one = oracle @ EscrowError::InvalidOracleAuthority,
         has_one = freelancer @ EscrowError::InvalidFreelancerTarget,
         has_one = client @ EscrowError::InvalidClientAuthority,
         seeds = [b"gig-escrow", escrow_account.client.key().as_ref(), escrow_account.job_id.as_bytes()],
@@ -202,5 +199,5 @@ pub enum EscrowError {
     InvalidOracleAuthority,
     #[msg("Refund target does not match the original client.")]
     InvalidClientAuthority,
-        }
-            
+            }
+                
