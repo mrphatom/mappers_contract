@@ -34,7 +34,7 @@ export const config = {
   ai: {
     geminiApiKey:    required("GEMINI_API_KEY"),
     anthropicApiKey: required("ANTHROPIC_API_KEY"),
-    geminiModel:     optional("GEMINI_MODEL", "gemini-1.5-pro"),
+    geminiModel: optional("GEMINI_MODEL", "gemini-3.5-flash"),
     anthropicModel:  optional("ANTHROPIC_MODEL", "claude-sonnet-4-6"),
     approvalThreshold:  optionalNumber("APPROVAL_CONFIDENCE_THRESHOLD", 0.80),
     rejectionThreshold: optionalNumber("REJECTION_CONFIDENCE_THRESHOLD", 0.75),
