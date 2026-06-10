@@ -1,1 +1,28 @@
-
+{
+  "name": "mappers-oracle",
+  "version": "1.0.0",
+  "description": "Autonomous AI oracle middleware for the Mappers Protocol",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.0",
+    "@coral-xyz/anchor": "^0.30.0",
+    "@google/generative-ai": "^0.15.0",
+    "@sentry/node": "^8.0.0",
+    "@solana/web3.js": "^1.95.0",
+    "@triton-one/yellowstone-grpc": "^1.0.0",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.0.0",
+    "express": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.5.0"
+  }
+}
