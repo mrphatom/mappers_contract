@@ -34,15 +34,20 @@ The core Anchor program incorporates advanced security patches to guarantee fund
 │   ├── src/lib.rs           # Core multi-signer escrow logic & validation gates
 │   └── Cargo.toml           # Manifest configurations & dependencies
 oracle/
-├── package.json
-├── tsconfig.json
-├── .env
+├── package.json       Dependencies list — tells Node what to install
+├── tsconfig.json      TypeScript compiler config
+├── .env               Your private keys and API keys (never commit this)
+├── idl.json           Copy of your compiled contract IDL — oracle reads this
+│                      to know how to talk to the on-chain program
 └── src/
-    ├── index.ts
-    ├── listener.ts
-    ├── verification.ts
-    ├── chain.ts
-    ├── store.ts
-    ├── config.ts
-    └── types.ts
+    ├── index.ts       THE MAIN FILE — boots everything, runs the HTTP server
+    ├── listener.ts    Connects to Helius gRPC, watches the chain 24/7,
+    │                  detects when new jobs are created and stores them
+    ├── verification.ts Calls Gemini + Claude in parallel, compares their
+    │                  verdicts, decides RELEASE / REFUND / ESCALATE
+    ├── chain.ts       The part that actually signs and sends on-chain
+    │                  transactions (release_payment / cancel_job)
+    ├── store.ts       In-memory database of pending jobs the oracle is tracking
+    ├── config.ts      Reads your .env file and validates all required vars
+    └── types.ts       Shared TypeScript type definitions used across all files
 └── frontend/                # Next.js 14 Client Dashboard Application
