@@ -5,3 +5,11 @@ node_modules
 dist
 build
 test-ledger
+
+# IDL — Prettier reformatting breaks oracle runtime JSON parsing
+idl.json
+oracle/idl.json
+
+# Config files Prettier shouldn't touch
+*.toml
+Cargo.lock
