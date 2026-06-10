@@ -1,7 +1,34 @@
+# Anchor
 .anchor
-.DS_Store
 target
 **/*.rs.bk
-node_modules
 test-ledger
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.*
+!.env.example
+
+# Solana keypair files — never commit private keys
+*-keypair.json
+keypair.json
+wallet.json
+
+# Oracle build output
+oracle/dist/
+
+# Dependencies
+node_modules
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Yarn
 .yarn
+.pnp.*
+
+# Editor
+.vscode/settings.json
+.idea/
