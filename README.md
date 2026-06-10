@@ -33,7 +33,16 @@ The core Anchor program incorporates advanced security patches to guarantee fund
 ├── program/                 # Anchor Smart Contract Infrastructure
 │   ├── src/lib.rs           # Core multi-signer escrow logic & validation gates
 │   └── Cargo.toml           # Manifest configurations & dependencies
-├── oracle/                  # Off-chain Agentic Middleware Node
-│   ├── index.js             # gRPC stream event listener & key management
-│   └── verification.js      # Manus AI orchestration (Gemini + Claude consensus loop)
+oracle/
+├── package.json
+├── tsconfig.json
+├── .env
+└── src/
+    ├── index.ts
+    ├── listener.ts
+    ├── verification.ts
+    ├── chain.ts
+    ├── store.ts
+    ├── config.ts
+    └── types.ts
 └── frontend/                # Next.js 14 Client Dashboard Application
