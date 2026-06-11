@@ -7,7 +7,7 @@ Powered by Cross-Validated AI Oracles on Solana**
 ---
 
 *Published by the Mappers Core Team*  
-*Solana Mainnet-Beta Target: Q3 2025*
+*Solana Mainnet-Beta Target: Q4 2026*
 
 ---
 
