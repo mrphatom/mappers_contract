@@ -8,6 +8,19 @@ Mappers is a decentralized freelance escrow protocol built natively on Solana us
 
 ---
 
+## Documentation
+
+Full protocol documentation lives in [`docs/wiki/`](./docs/wiki) as tracked, version-controlled Markdown derived from this README and the [whitepaper](./mappers_whitepaper.md):
+
+- [Overview](./docs/wiki/Home.md) — what Mappers is and the problems it solves
+- [Architecture](./docs/wiki/Architecture.md) — the three protocol layers, PDA design, state machine, and security model
+- [Getting Started](./docs/wiki/Getting-Started.md) — prerequisites, tests, oracle setup, and API reference
+- [Glossary](./docs/wiki/Glossary.md) — definitions of every term, account, role, state, and error code
+
+These pages follow GitHub Wiki naming conventions and can be pushed to the project's wiki repository — see [`docs/wiki/README.md`](./docs/wiki/README.md) for the export workflow.
+
+---
+
 ## Architecture Overview
 
 Mappers operates through three tightly coupled layers:
