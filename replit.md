@@ -1,6 +1,6 @@
-# [Project name]
+# Mappers_Contract
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An empty project workspace named Mappers_Contract, ready for development.
 
 ## Run & Operate
 
