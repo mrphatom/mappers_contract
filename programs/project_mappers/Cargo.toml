@@ -1,0 +1,18 @@
+[package]
+name = "project_mappers"
+version = "0.1.0"
+description = "Mappers Protocol Core Contract"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "project_mappers"
+
+[features]
+no-entrypoint = []
+no-idl = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "0.29.0"
