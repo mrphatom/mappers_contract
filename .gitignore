@@ -47,3 +47,12 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Rust / Anchor
+target/
+.anchor/
+
+# Oracle
+oracle/node_modules/
+oracle/dist/
+oracle/.env
