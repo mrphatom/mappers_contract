@@ -15,8 +15,12 @@ test-ledger
 keypair.json
 wallet.json
 
-# Oracle build output
+# Build outputs
 oracle/dist/
+apps/*/dist/
+lib/*/dist/
+scripts/dist/
+*.tsbuildinfo
 
 # Dependencies
 node_modules
@@ -25,9 +29,10 @@ node_modules
 .DS_Store
 Thumbs.db
 
-# Yarn
+# Package managers
 .yarn
 .pnp.*
+pnpm-debug.log*
 
 # Editor
 .vscode/settings.json

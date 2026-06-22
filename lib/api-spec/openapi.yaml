@@ -1,0 +1,359 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Mappers Protocol API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: jobs
+    description: Escrow job management
+  - name: stats
+    description: Dashboard statistics
+  - name: oracle
+    description: Oracle proxy
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /jobs:
+    get:
+      operationId: listJobs
+      tags: [jobs]
+      summary: List all jobs
+      description: Returns all registered escrow jobs
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, completed, cancelled]
+          required: false
+        - in: query
+          name: clientPubkey
+          schema:
+            type: string
+          required: false
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Job"
+    post:
+      operationId: createJob
+      tags: [jobs]
+      summary: Register a job
+      description: Cache an on-chain job in the database after initialization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobInput"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "400":
+          description: Validation error
+
+  /jobs/{jobId}:
+    get:
+      operationId: getJob
+      tags: [jobs]
+      summary: Get a job by jobId
+      parameters:
+        - in: path
+          name: jobId
+          schema:
+            type: string
+          required: true
+      responses:
+        "200":
+          description: Job found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateJob
+      tags: [jobs]
+      summary: Update job status or metadata
+      parameters:
+        - in: path
+          name: jobId
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobUpdate"
+      responses:
+        "200":
+          description: Updated job
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "404":
+          description: Not found
+
+  /jobs/{jobId}/submit:
+    post:
+      operationId: submitDeliverable
+      tags: [jobs]
+      summary: Submit a deliverable for AI verification
+      description: Proxies the deliverable to the oracle for Gemini + Claude consensus
+      parameters:
+        - in: path
+          name: jobId
+          schema:
+            type: string
+          required: true
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeliverableInput"
+      responses:
+        "200":
+          description: Verification result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubmitResult"
+        "400":
+          description: Validation error
+        "404":
+          description: Job not found
+        "503":
+          description: Oracle unavailable
+
+  /stats:
+    get:
+      operationId: getStats
+      tags: [stats]
+      summary: Dashboard statistics
+      description: Returns counts of jobs by status and total escrowed amount
+      responses:
+        "200":
+          description: Dashboard stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardStats"
+
+  /oracle/health:
+    get:
+      operationId: getOracleHealth
+      tags: [oracle]
+      summary: Oracle health proxy
+      description: Returns the oracle middleware health and pending job count
+      responses:
+        "200":
+          description: Oracle healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OracleHealth"
+        "503":
+          description: Oracle unavailable
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+        jobId:
+          type: string
+        clientPubkey:
+          type: string
+        freelancerPubkey:
+          type: string
+        oraclePubkey:
+          type: string
+        amountLamports:
+          type: string
+          description: Amount in lamports as string (u64 safe)
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+        description:
+          type: ["string", "null"]
+        acceptanceCriteria:
+          type: ["string", "null"]
+          description: JSON-encoded array of criteria strings
+        txSig:
+          type: ["string", "null"]
+          description: Most recent transaction signature
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - jobId
+        - clientPubkey
+        - freelancerPubkey
+        - oraclePubkey
+        - amountLamports
+        - status
+        - description
+        - acceptanceCriteria
+        - txSig
+        - createdAt
+        - updatedAt
+
+    JobInput:
+      type: object
+      properties:
+        jobId:
+          type: string
+          maxLength: 32
+        clientPubkey:
+          type: string
+        freelancerPubkey:
+          type: string
+        oraclePubkey:
+          type: string
+        amountLamports:
+          type: string
+        description:
+          type: string
+        acceptanceCriteria:
+          type: array
+          items:
+            type: string
+      required:
+        - jobId
+        - clientPubkey
+        - freelancerPubkey
+        - oraclePubkey
+        - amountLamports
+
+    JobUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, completed, cancelled]
+        txSig:
+          type: string
+        description:
+          type: string
+
+    DeliverableInput:
+      type: object
+      properties:
+        description:
+          type: string
+        acceptanceCriteria:
+          type: array
+          items:
+            type: string
+        deliverable:
+          type: string
+        deliverableType:
+          type: string
+          enum: [url, ipfs, text, json]
+      required:
+        - description
+        - acceptanceCriteria
+        - deliverable
+        - deliverableType
+
+    SubmitResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        jobId:
+          type: string
+        outcome:
+          type: ["string", "null"]
+          enum: [RELEASE, REFUND, ESCALATE, null]
+        txSig:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+      required:
+        - success
+        - jobId
+        - outcome
+        - txSig
+        - error
+
+    DashboardStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        pending:
+          type: integer
+        completed:
+          type: integer
+        cancelled:
+          type: integer
+        totalEscrowedLamports:
+          type: string
+          description: Sum of pending escrow amounts as string
+      required:
+        - total
+        - pending
+        - completed
+        - cancelled
+        - totalEscrowedLamports
+
+    OracleHealth:
+      type: object
+      properties:
+        status:
+          type: string
+        pendingJobs:
+          type: integer
+        timestamp:
+          type: string
+      required:
+        - status
+        - pendingJobs
+        - timestamp
