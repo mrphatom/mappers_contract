@@ -1,0 +1,277 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  color-scheme: dark;
+  --button-outline: rgba(255,255,255, .08);
+  --badge-outline: rgba(255,255,255, .05);
+
+  --opaque-button-border-intensity: 9;
+
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .07);
+
+  /* Solana dark with depth */
+  --background: 224 50% 3%;
+  --foreground: 210 40% 96%;
+
+  --border: 220 30% 10%;
+
+  --card: 224 45% 5%;
+  --card-foreground: 210 40% 96%;
+  --card-border: 220 30% 12%;
+
+  --sidebar: 224 50% 4%;
+  --sidebar-foreground: 210 40% 92%;
+  --sidebar-border: 220 30% 9%;
+  --sidebar-primary: 154 90% 51%;
+  --sidebar-primary-foreground: 224 50% 3%;
+  --sidebar-accent: 220 30% 10%;
+  --sidebar-accent-foreground: 210 40% 96%;
+  --sidebar-ring: 154 90% 51%;
+
+  --popover: 224 45% 6%;
+  --popover-foreground: 210 40% 96%;
+  --popover-border: 220 30% 13%;
+
+  --primary: 154 90% 51%;   /* Solana Green #14F195 */
+  --primary-foreground: 224 50% 3%;
+
+  --secondary: 271 100% 64%; /* Solana Purple #9945FF */
+  --secondary-foreground: 0 0% 100%;
+
+  --muted: 220 30% 10%;
+  --muted-foreground: 215 20% 55%;
+
+  --accent: 220 30% 12%;
+  --accent-foreground: 210 40% 96%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 96%;
+
+  --input: 220 30% 9%;
+  --ring: 154 90% 51%;
+
+  --app-font-sans: 'Inter', system-ui, sans-serif;
+  --app-font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+  --radius: 0.75rem;
+
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --primary-border: hsl(var(--primary));
+  --secondary-border: hsl(var(--secondary));
+  --muted-border: hsl(var(--muted));
+  --accent-border: hsl(var(--accent));
+  --destructive-border: hsl(var(--destructive));
+
+  /* Glass system */
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-bg-hover: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.07);
+  --glass-border-hover: rgba(255, 255, 255, 0.13);
+  --glow-green: 20, 241, 149;
+  --glow-purple: 153, 69, 255;
+}
+
+/* ─── KEYFRAMES ─────────────────────────────────────────────────────────────── */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-6px); }
+}
+
+@keyframes glow-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(20, 241, 149, 0); }
+  50%       { box-shadow: 0 0 24px 4px rgba(20, 241, 149, 0.15); }
+}
+
+@keyframes gradient-shift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes shimmer-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+@keyframes mesh-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(2%, 1%) scale(1.03); }
+  66%  { transform: translate(-1%, 2%) scale(0.97); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── BASE ──────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply font-sans antialiased text-foreground;
+    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 80% 50% at 15% 40%, rgba(var(--glow-green), 0.07) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 40% at 85% 15%, rgba(var(--glow-purple), 0.06) 0%, transparent 55%),
+      radial-gradient(ellipse 40% 30% at 70% 80%, rgba(var(--glow-green), 0.03) 0%, transparent 50%);
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background: rgba(var(--glow-green), 0.3);
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255,255,255,0.18);
+  }
+}
+
+/* ─── UTILITIES ─────────────────────────────────────────────────────────────── */
+
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  /* Glass morphism panel */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px) saturate(1.5);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5);
+    border: 1px solid var(--glass-border);
+  }
+
+  .glass-hover:hover {
+    background: var(--glass-bg-hover);
+    border-color: var(--glass-border-hover);
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, #14F195 0%, #9945FF 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Gradient border via box-shadow */
+  .glow-green {
+    box-shadow: 0 0 20px rgba(var(--glow-green), 0.15),
+                0 0 60px rgba(var(--glow-green), 0.05);
+  }
+
+  .glow-purple {
+    box-shadow: 0 0 20px rgba(var(--glow-purple), 0.15),
+                0 0 60px rgba(var(--glow-purple), 0.05);
+  }
+
+  /* Animated shimmer loading */
+  .shimmer {
+    position: relative;
+    overflow: hidden;
+  }
+  .shimmer::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 25%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.04), transparent);
+    animation: shimmer-slide 2s infinite;
+  }
+
+  /* Fade up entry */
+  .animate-fade-up {
+    animation: fade-up 0.4s ease-out both;
+  }
+
+  /* Mesh drift (for background blobs) */
+  .animate-mesh-drift {
+    animation: mesh-drift 20s ease-in-out infinite;
+  }
+}
