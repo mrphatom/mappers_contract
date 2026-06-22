@@ -101,7 +101,7 @@ export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useGetStats();
   const { data: jobs, isLoading: jobsLoading } = useListJobs();
 
-  const recentJobs = jobs?.slice().reverse().slice(0, 10) ?? [];
+  const recentJobs = Array.isArray(jobs) ? jobs.slice().reverse().slice(0, 10) : [];
 
   return (
     <div className="flex-1 flex flex-col">

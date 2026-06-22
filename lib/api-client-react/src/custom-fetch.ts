@@ -302,6 +302,22 @@ async function parseSuccessBody(
   const effectiveType =
     responseType === "auto" ? inferResponseType(response) : responseType;
 
+  // An HTML document is never a valid structured API payload. This typically
+  // happens when a request is routed to an SPA dev-server / reverse-proxy
+  // fallback (which serves index.html with a 200) instead of the API server.
+  // Returning that HTML string as "successful" data leads callers to crash
+  // downstream (e.g. treating it as an array/object). Surface it as a parse
+  // error instead so consumers can handle it via their error states.
+  if (responseType === "auto" && getMediaType(response.headers) === "text/html") {
+    const raw = await response.text();
+    throw new ResponseParseError(
+      response,
+      raw,
+      new Error("Expected a structured API response but received an HTML document"),
+      requestInfo,
+    );
+  }
+
   switch (effectiveType) {
     case "json":
       return parseJsonBody(response, requestInfo);

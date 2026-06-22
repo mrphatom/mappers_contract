@@ -30,7 +30,7 @@ export default function Jobs() {
     statusFilter !== "all" ? { status: statusFilter } : undefined
   );
 
-  const filtered = (jobs ?? []).filter((job) => {
+  const filtered = (Array.isArray(jobs) ? jobs : []).filter((job) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (
