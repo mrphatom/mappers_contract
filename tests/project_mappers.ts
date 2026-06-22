@@ -9,39 +9,8 @@ import {
 import { assert } from "chai";
 // Generated after `anchor build` — run build before first test run
 import { ProjectMappers } from "../target/types/project_mappers";
-
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
-async function airdrop(
-  connection: anchor.web3.Connection,
-  pubkey: PublicKey,
-  sol: number
-) {
-  const sig = await connection.requestAirdrop(pubkey, sol * LAMPORTS_PER_SOL);
-  await connection.confirmTransaction(sig, "confirmed");
-}
-
-function deriveEscrowPda(
-  client: PublicKey,
-  jobId: string,
-  programId: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("gig-escrow"), client.toBuffer(), Buffer.from(jobId)],
-    programId
-  );
-}
-
-function deriveVaultPda(
-  client: PublicKey,
-  jobId: string,
-  programId: PublicKey
-): [PublicKey, number] {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), client.toBuffer(), Buffer.from(jobId)],
-    programId
-  );
-}
+import { deriveEscrowPda, deriveVaultPda } from "../shared/pda";
+import { airdrop, createEscrow, expectAnchorError } from "./helpers";
 
 // ─── TEST SUITE ──────────────────────────────────────────────────────────────
 
@@ -76,18 +45,10 @@ describe("project_mappers", () => {
 
       const clientBalanceBefore = await connection.getBalance(client.publicKey);
 
-      await program.methods
-        .initializeJob(jobId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: escrowPda,
-          vaultAccount:  vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      await createEscrow({
+        program, client, freelancer: freelancer.publicKey,
+        oracle: oracle.publicKey, jobId, amount: JOB_AMOUNT,
+      });
 
       const escrow = await program.account.gigEscrow.fetch(escrowPda);
       assert.equal(escrow.client.toBase58(),     client.publicKey.toBase58(),     "client mismatch");
@@ -109,74 +70,38 @@ describe("project_mappers", () => {
 
     it("rejects job_id longer than 32 characters", async () => {
       const jobId = "this-job-id-is-way-too-long-for-the-contract-limit";
-      const [escrowPda] = deriveEscrowPda(client.publicKey, jobId, program.programId);
-      const [vaultPda]  = deriveVaultPda(client.publicKey, jobId, program.programId);
 
-      try {
-        await program.methods
-          .initializeJob(jobId, JOB_AMOUNT)
-          .accounts({
-            client:        client.publicKey,
-            freelancer:    freelancer.publicKey,
-            oracle:        oracle.publicKey,
-            escrowAccount: escrowPda,
-            vaultAccount:  vaultPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([client])
-          .rpc();
-        assert.fail("Should have thrown JobIdTooLong");
-      } catch (err: any) {
-        assert.include(err.message, "JobIdTooLong");
-      }
+      await expectAnchorError(
+        () => createEscrow({
+          program, client, freelancer: freelancer.publicKey,
+          oracle: oracle.publicKey, jobId, amount: JOB_AMOUNT,
+        }),
+        "JobIdTooLong"
+      );
     });
 
     it("rejects zero amount", async () => {
       const jobId = "init-zero-amount";
-      const [escrowPda] = deriveEscrowPda(client.publicKey, jobId, program.programId);
-      const [vaultPda]  = deriveVaultPda(client.publicKey, jobId, program.programId);
 
-      try {
-        await program.methods
-          .initializeJob(jobId, new BN(0))
-          .accounts({
-            client:        client.publicKey,
-            freelancer:    freelancer.publicKey,
-            oracle:        oracle.publicKey,
-            escrowAccount: escrowPda,
-            vaultAccount:  vaultPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([client])
-          .rpc();
-        assert.fail("Should have thrown InvalidAmount");
-      } catch (err: any) {
-        assert.include(err.message, "InvalidAmount");
-      }
+      await expectAnchorError(
+        () => createEscrow({
+          program, client, freelancer: freelancer.publicKey,
+          oracle: oracle.publicKey, jobId, amount: new BN(0),
+        }),
+        "InvalidAmount"
+      );
     });
 
     it("rejects amount below rent-exempt floor", async () => {
       const jobId = "init-below-rent";
-      const [escrowPda] = deriveEscrowPda(client.publicKey, jobId, program.programId);
-      const [vaultPda]  = deriveVaultPda(client.publicKey, jobId, program.programId);
 
-      try {
-        await program.methods
-          .initializeJob(jobId, new BN(100)) // 100 lamports — far below ~890,880
-          .accounts({
-            client:        client.publicKey,
-            freelancer:    freelancer.publicKey,
-            oracle:        oracle.publicKey,
-            escrowAccount: escrowPda,
-            vaultAccount:  vaultPda,
-            systemProgram: SystemProgram.programId,
-          })
-          .signers([client])
-          .rpc();
-        assert.fail("Should have thrown AmountBelowRentExemption");
-      } catch (err: any) {
-        assert.include(err.message, "AmountBelowRentExemption");
-      }
+      await expectAnchorError(
+        () => createEscrow({
+          program, client, freelancer: freelancer.publicKey,
+          oracle: oracle.publicKey, jobId, amount: new BN(100), // 100 lamports — far below ~890,880
+        }),
+        "AmountBelowRentExemption"
+      );
     });
   });
 
@@ -199,21 +124,12 @@ describe("project_mappers", () => {
       await airdrop(connection, client.publicKey, 10);
       await airdrop(connection, oracle.publicKey, 1);
 
-      [escrowPda] = deriveEscrowPda(client.publicKey, jobId, program.programId);
-      [vaultPda]  = deriveVaultPda(client.publicKey, jobId, program.programId);
-
-      await program.methods
-        .initializeJob(jobId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: escrowPda,
-          vaultAccount:  vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const pdas = await createEscrow({
+        program, client, freelancer: freelancer.publicKey,
+        oracle: oracle.publicKey, jobId, amount: JOB_AMOUNT,
+      });
+      escrowPda = pdas.escrowPda;
+      vaultPda  = pdas.vaultPda;
     });
 
     it("oracle releases payment to freelancer and closes escrow", async () => {
@@ -249,22 +165,12 @@ describe("project_mappers", () => {
 
     it("client can manually release payment", async () => {
       const clientJobId = "release-client-002";
-      const [cEscrowPda] = deriveEscrowPda(client.publicKey, clientJobId, program.programId);
-      const [cVaultPda]  = deriveVaultPda(client.publicKey, clientJobId, program.programId);
       const freelancer2  = Keypair.generate();
 
-      await program.methods
-        .initializeJob(clientJobId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer2.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: cEscrowPda,
-          vaultAccount:  cVaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const { escrowPda: cEscrowPda, vaultPda: cVaultPda } = await createEscrow({
+        program, client, freelancer: freelancer2.publicKey,
+        oracle: oracle.publicKey, jobId: clientJobId, amount: JOB_AMOUNT,
+      });
 
       const balBefore = await connection.getBalance(freelancer2.publicKey);
 
@@ -288,27 +194,17 @@ describe("project_mappers", () => {
     it("rejects unauthorized signer", async () => {
       const rando   = Keypair.generate();
       const randoId = "release-unauth-003";
-      const [rEscrowPda] = deriveEscrowPda(client.publicKey, randoId, program.programId);
-      const [rVaultPda]  = deriveVaultPda(client.publicKey, randoId, program.programId);
       const freelancer3  = Keypair.generate();
 
       await airdrop(connection, rando.publicKey, 1);
 
-      await program.methods
-        .initializeJob(randoId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer3.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: rEscrowPda,
-          vaultAccount:  rVaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const { escrowPda: rEscrowPda, vaultPda: rVaultPda } = await createEscrow({
+        program, client, freelancer: freelancer3.publicKey,
+        oracle: oracle.publicKey, jobId: randoId, amount: JOB_AMOUNT,
+      });
 
-      try {
-        await program.methods
+      await expectAnchorError(
+        () => program.methods
           .releasePayment()
           .accounts({
             authority:     rando.publicKey,
@@ -319,31 +215,19 @@ describe("project_mappers", () => {
             systemProgram: SystemProgram.programId,
           })
           .signers([rando])
-          .rpc();
-        assert.fail("Should have thrown UnauthorizedExecution");
-      } catch (err: any) {
-        assert.include(err.message, "UnauthorizedExecution");
-      }
+          .rpc(),
+        "UnauthorizedExecution"
+      );
     });
 
     it("rejects double-spend on completed job", async () => {
       const ds2Id = "release-doublespend-004";
-      const [dsEscrow] = deriveEscrowPda(client.publicKey, ds2Id, program.programId);
-      const [dsVault]  = deriveVaultPda(client.publicKey, ds2Id, program.programId);
       const freelancer4 = Keypair.generate();
 
-      await program.methods
-        .initializeJob(ds2Id, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer4.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: dsEscrow,
-          vaultAccount:  dsVault,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const { escrowPda: dsEscrow, vaultPda: dsVault } = await createEscrow({
+        program, client, freelancer: freelancer4.publicKey,
+        oracle: oracle.publicKey, jobId: ds2Id, amount: JOB_AMOUNT,
+      });
 
       // First release — succeeds
       await program.methods
@@ -360,8 +244,8 @@ describe("project_mappers", () => {
         .rpc({ commitment: "confirmed" });
 
       // Second release — must fail (account is closed)
-      try {
-        await program.methods
+      await expectAnchorError(
+        () => program.methods
           .releasePayment()
           .accounts({
             authority:     oracle.publicKey,
@@ -372,12 +256,10 @@ describe("project_mappers", () => {
             systemProgram: SystemProgram.programId,
           })
           .signers([oracle])
-          .rpc();
-        assert.fail("Should have failed on closed account");
-      } catch (err: any) {
-        // Account is closed — Anchor throws AccountNotInitialized or similar
-        assert.ok(err.message.length > 0, "Expected an error on second release");
-      }
+          .rpc(),
+        "", // Account is closed — Anchor throws AccountNotInitialized or similar
+        "Should have failed on closed account"
+      );
     });
   });
 
@@ -400,21 +282,12 @@ describe("project_mappers", () => {
       await airdrop(connection, client.publicKey, 10);
       await airdrop(connection, oracle.publicKey, 1);
 
-      [escrowPda] = deriveEscrowPda(client.publicKey, jobId, program.programId);
-      [vaultPda]  = deriveVaultPda(client.publicKey, jobId, program.programId);
-
-      await program.methods
-        .initializeJob(jobId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: escrowPda,
-          vaultAccount:  vaultPda,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const pdas = await createEscrow({
+        program, client, freelancer: freelancer.publicKey,
+        oracle: oracle.publicKey, jobId, amount: JOB_AMOUNT,
+      });
+      escrowPda = pdas.escrowPda;
+      vaultPda  = pdas.vaultPda;
     });
 
     it("oracle refunds client and closes escrow", async () => {
@@ -450,27 +323,17 @@ describe("project_mappers", () => {
     it("rejects cancel by non-oracle signer", async () => {
       const impostor   = Keypair.generate();
       const impostorId = "cancel-impostor-002";
-      const [iEscrow]  = deriveEscrowPda(client.publicKey, impostorId, program.programId);
-      const [iVault]   = deriveVaultPda(client.publicKey, impostorId, program.programId);
       const freelancer5 = Keypair.generate();
 
       await airdrop(connection, impostor.publicKey, 1);
 
-      await program.methods
-        .initializeJob(impostorId, JOB_AMOUNT)
-        .accounts({
-          client:        client.publicKey,
-          freelancer:    freelancer5.publicKey,
-          oracle:        oracle.publicKey,
-          escrowAccount: iEscrow,
-          vaultAccount:  iVault,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([client])
-        .rpc({ commitment: "confirmed" });
+      const { escrowPda: iEscrow, vaultPda: iVault } = await createEscrow({
+        program, client, freelancer: freelancer5.publicKey,
+        oracle: oracle.publicKey, jobId: impostorId, amount: JOB_AMOUNT,
+      });
 
-      try {
-        await program.methods
+      await expectAnchorError(
+        () => program.methods
           .cancelJob()
           .accounts({
             oracle:        impostor.publicKey, // wrong oracle
@@ -480,11 +343,9 @@ describe("project_mappers", () => {
             systemProgram: SystemProgram.programId,
           })
           .signers([impostor])
-          .rpc();
-        assert.fail("Should have thrown InvalidOracleAuthority");
-      } catch (err: any) {
-        assert.include(err.message, "InvalidOracleAuthority");
-      }
+          .rpc(),
+        "InvalidOracleAuthority"
+      );
     });
   });
 });

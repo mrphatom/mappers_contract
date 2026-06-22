@@ -6,9 +6,9 @@ import {
   ConsensusResult,
   ConsensusOutcome,
   SubmissionArtifact,
-  Verdict,
   StoredJob,
 } from "./types";
+import { toModelVerdict, ParsedModelResponse } from "./utils";
 
 // ─── CLIENTS ─────────────────────────────────────────────────────────────────
 
@@ -75,14 +75,7 @@ async function verifyWithGemini(
   const text = result.response.text().trim();
   const parsed = parseModelResponse(text);
 
-  return {
-    model:          config.ai.geminiModel,
-    verdict:        parsed.verdict as Verdict,
-    confidence:     parsed.confidence,
-    reasoning:      parsed.reasoning,
-    criteriaMet:    parsed.criteria_met,
-    criteriaFailed: parsed.criteria_failed,
-  };
+  return toModelVerdict(config.ai.geminiModel, parsed);
 }
 
 // ─── CLAUDE VERIFICATION ──────────────────────────────────────────────────────
@@ -110,25 +103,12 @@ async function verifyWithClaude(
   const text   = content.text.trim();
   const parsed = parseModelResponse(text);
 
-  return {
-    model:          config.ai.anthropicModel,
-    verdict:        parsed.verdict as Verdict,
-    confidence:     parsed.confidence,
-    reasoning:      parsed.reasoning,
-    criteriaMet:    parsed.criteria_met,
-    criteriaFailed: parsed.criteria_failed,
-  };
+  return toModelVerdict(config.ai.anthropicModel, parsed);
 }
 
 // ─── RESPONSE PARSER ──────────────────────────────────────────────────────────
 
-function parseModelResponse(text: string): {
-  verdict:        string;
-  confidence:     number;
-  reasoning:      string;
-  criteria_met:   string[];
-  criteria_failed: string[];
-} {
+function parseModelResponse(text: string): ParsedModelResponse {
   // Strip any accidental markdown fences a model may emit despite instructions
   const clean = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
 

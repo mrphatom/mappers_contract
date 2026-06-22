@@ -24,6 +24,7 @@ import {
 import { BN } from "@coral-xyz/anchor";
 import * as fs from "fs";
 import * as path from "path";
+import { deriveEscrowPda, deriveVaultPda } from "../shared/pda";
 
 // ─── CONFIG ──────────────────────────────────────────────────────────────────
 
@@ -49,22 +50,6 @@ function loadKeypair(envKey: string, fileFallback: string): Keypair {
   throw new Error(
     `Could not load keypair. Set env var ${envKey} or provide file at ${fileFallback}`
   );
-}
-
-// ─── PDA HELPERS ─────────────────────────────────────────────────────────────
-
-function deriveEscrowPda(client: PublicKey, jobId: string): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("gig-escrow"), client.toBuffer(), Buffer.from(jobId)],
-    PROGRAM_ID
-  )[0];
-}
-
-function deriveVaultPda(client: PublicKey, jobId: string): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), client.toBuffer(), Buffer.from(jobId)],
-    PROGRAM_ID
-  )[0];
 }
 
 // ─── ORACLE HTTP HELPERS ──────────────────────────────────────────────────────
@@ -176,8 +161,8 @@ async function main() {
 
   // 5. Create escrow on-chain
   const freelancer = Keypair.generate(); // random for test
-  const escrowPda  = deriveEscrowPda(clientKeypair.publicKey, JOB_ID);
-  const vaultPda   = deriveVaultPda(clientKeypair.publicKey, JOB_ID);
+  const [escrowPda] = deriveEscrowPda(clientKeypair.publicKey, JOB_ID, PROGRAM_ID);
+  const [vaultPda]  = deriveVaultPda(clientKeypair.publicKey, JOB_ID, PROGRAM_ID);
 
   console.log(`\n📝 Creating escrow on devnet...`);
   console.log(`   Escrow PDA: ${escrowPda.toBase58()}`);
