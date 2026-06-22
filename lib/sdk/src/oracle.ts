@@ -21,10 +21,22 @@ export class OracleClient {
       ...init,
     });
 
-    const body = await res.json() as T & { error?: string };
+    const text = await res.text();
+
+    let body: T & { error?: string };
+    try {
+      body = JSON.parse(text) as T & { error?: string };
+    } catch {
+      throw new OracleError(
+        !res.ok
+          ? `HTTP ${res.status}: ${text.slice(0, 200)}`
+          : `Unexpected non-JSON response from oracle: ${text.slice(0, 200)}`,
+        res.status,
+      );
+    }
 
     if (!res.ok) {
-      const message = (body as unknown as { error?: string }).error ?? `HTTP ${res.status}`;
+      const message = body.error ?? `HTTP ${res.status}`;
       throw new OracleError(message, res.status);
     }
 

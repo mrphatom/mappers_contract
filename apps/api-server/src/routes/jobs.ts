@@ -109,9 +109,9 @@ router.patch("/jobs/:jobId", async (req, res): Promise<void> => {
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
-  if (parsed.data.status)      updates["status"]  = parsed.data.status;
-  if (parsed.data.txSig)       updates["txSig"]   = parsed.data.txSig;
-  if (parsed.data.description) updates["description"] = parsed.data.description;
+  if (parsed.data.status !== undefined)      updates["status"]  = parsed.data.status;
+  if (parsed.data.txSig !== undefined)       updates["txSig"]   = parsed.data.txSig;
+  if (parsed.data.description !== undefined) updates["description"] = parsed.data.description;
 
   const [job] = await db
     .update(jobsTable)
