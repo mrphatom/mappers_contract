@@ -1,11 +1,10 @@
 import * as Sentry from "@sentry/node";
 import express, { Request, Response, NextFunction } from "express";
-import { PublicKey } from "@solana/web3.js";
 import { config } from "./config";
 import { store } from "./store";
 import { startListener } from "./listener";
 import { runConsensus } from "./verification";
-import { releasePayment, cancelJob, fetchEscrow } from "./chain";
+import { releasePayment, cancelJob } from "./chain";
 import {
   SubmitRequest,
   SubmitResponse,
@@ -86,23 +85,7 @@ app.post("/submit", async (req: Request, res: Response) => {
   const job = store.get(body.jobId);
 
   if (!job) {
-    // Job not in store — attempt live fetch as fallback
-    console.warn(`[submit] Job ${body.jobId} not in store — attempting chain fetch`);
-    try {
-      // Derive escrow PDA to fetch
-      const [escrowPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("gig-escrow"),
-          // Note: client pubkey must be passed for PDA derivation in fallback
-          // If not in store, we can't derive without client key.
-          // Return a clear error directing caller to include clientPubkey.
-        ],
-        new PublicKey(config.solana.programId)
-      );
-      void escrowPda; // suppress unused warning
-    } catch {
-      // Expected — can't derive without client pubkey
-    }
+    console.warn(`[submit] Job ${body.jobId} not found in oracle store`);
 
     res.status(404).json({
       success: false,
@@ -204,11 +187,20 @@ function bootstrap(): void {
   startListener();
 
   // 2. Start HTTP server — receives freelancer submission triggers
-  app.listen(config.server.port, () => {
+  const server = app.listen(config.server.port, () => {
     console.log(`\n🟢 Mappers Oracle running`);
     console.log(`   HTTP server: http://localhost:${config.server.port}`);
     console.log(`   Program ID:  ${config.solana.programId}`);
     console.log(`   Network:     ${config.solana.rpcUrl}\n`);
+  });
+
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(`[oracle] Port ${config.server.port} is already in use. Exiting.`);
+    } else {
+      console.error(`[oracle] HTTP server error: ${err.message}`);
+    }
+    process.exit(1);
   });
 
   // 3. Graceful shutdown
@@ -224,7 +216,23 @@ function bootstrap(): void {
 
   process.on("unhandledRejection", (reason) => {
     console.error("[oracle] Unhandled rejection:", reason);
-    if (config.sentry.enabled) Sentry.captureException(reason);
+    if (config.sentry.enabled) {
+      Sentry.captureException(reason);
+      // Flush Sentry events before exiting
+      void Sentry.flush(2000).finally(() => process.exit(1));
+    } else {
+      process.exit(1);
+    }
+  });
+
+  process.on("uncaughtException", (err) => {
+    console.error("[oracle] Uncaught exception:", err);
+    if (config.sentry.enabled) {
+      Sentry.captureException(err);
+      void Sentry.flush(2000).finally(() => process.exit(1));
+    } else {
+      process.exit(1);
+    }
   });
 }
 

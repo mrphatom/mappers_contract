@@ -21,8 +21,18 @@ const RECONNECT_MAX  = 60_000; // ms
 function tryDecodeGigEscrow(data: Buffer): GigEscrow | null {
   try {
     return coder.accounts.decode<GigEscrow>("GigEscrow", data);
-  } catch {
-    return null; // Not a GigEscrow — ignore silently
+  } catch (err: unknown) {
+    // Accounts with fewer than 8 bytes or a non-matching discriminator are
+    // expected (non-GigEscrow program accounts). Only log when the buffer
+    // *looks* like it should decode (8-byte discriminator present, size
+    // roughly matches) to surface real deserialization bugs.
+    if (data.length >= 151) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[listener] Failed to decode GigEscrow from ${data.length}-byte account: ${message}`
+      );
+    }
+    return null;
   }
 }
 
@@ -83,7 +93,12 @@ async function startSubscription(attempt: number = 0): Promise<void> {
 
       stream.on("data", (data: SubscribeUpdate) => {
         if (data.account) {
-          handleAccountUpdate(data.account);
+          try {
+            handleAccountUpdate(data.account);
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`[listener] Error processing account update: ${message}`);
+          }
         }
       });
 
@@ -118,9 +133,12 @@ async function startSubscription(attempt: number = 0): Promise<void> {
         }
       );
     });
-  } catch (err) {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
     const delay = Math.min(RECONNECT_BASE * 2 ** attempt, RECONNECT_MAX);
-    console.error(`[listener] Connection failed. Reconnecting in ${delay}ms... (attempt ${attempt + 1})`);
+    console.error(
+      `[listener] Connection failed (attempt ${attempt + 1}): ${message}. Reconnecting in ${delay}ms...`
+    );
     await new Promise((r) => setTimeout(r, delay));
     return startSubscription(attempt + 1);
   }
