@@ -57,9 +57,9 @@ Together these layers create a trust infrastructure that is faster, cheaper, and
 - [x] Full security audit — critical bump bug resolved, rent-lock prevention, compute optimizations
 - [x] Devnet deployment
 - [x] Oracle middleware — Helius gRPC listener, Gemini + Claude consensus pipeline
-- [ ] Integration test suite
-- [ ] Next.js frontend — job creation dashboard, status tracker, submission interface
-- [ ] TypeScript SDK — `@mappers-protocol/sdk`
+- [x] Integration test suite
+- [x] Next.js frontend — job creation dashboard, status tracker, submission interface
+- [x] TypeScript SDK — `@mappers-protocol/sdk`
 - [ ] Mainnet-Beta launch
 
 See the [whitepaper](../../mappers_whitepaper.md) for the full milestone breakdown.
