@@ -3,6 +3,7 @@ import { PublicKey, Keypair, SystemProgram, Connection } from "@solana/web3.js";
 import bs58 from "bs58";
 import { config } from "./config";
 import { GigEscrow, StoredJob } from "./types";
+import { deriveVaultPda } from "./utils";
 
 // ─── PROGRAM SETUP ────────────────────────────────────────────────────────────
 
@@ -34,16 +35,6 @@ function buildProgram() {
 const { program, oracleKeypair, connection } = buildProgram();
 const programId = new PublicKey(config.solana.programId);
 
-// ─── PDA DERIVATION ───────────────────────────────────────────────────────────
-
-function deriveVaultPda(clientPubkey: PublicKey, jobId: string): PublicKey {
-  const [vaultPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from("vault"), clientPubkey.toBuffer(), Buffer.from(jobId)],
-    programId
-  );
-  return vaultPda;
-}
-
 // ─── FETCH ESCROW ─────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(escrowPubkey: PublicKey): Promise<GigEscrow> {
@@ -52,19 +43,21 @@ export async function fetchEscrow(escrowPubkey: PublicKey): Promise<GigEscrow> {
   return escrow;
 }
 
-// ─── RELEASE PAYMENT ─────────────────────────────────────────────────────────
+// ─── TRANSACTION HELPER ──────────────────────────────────────────────────────
 
-export async function releasePayment(job: StoredJob): Promise<string> {
+async function sendOracleTx(
+  method: string,
+  job: StoredJob,
+  extraAccounts: Record<string, PublicKey>
+): Promise<string> {
   const { escrow, escrowPubkey } = job;
-
-  const vaultPda = deriveVaultPda(escrow.client, escrow.jobId);
+  const vaultPda = deriveVaultPda(escrow.client, escrow.jobId, programId);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const txSig = await (program.methods as any)
-    .releasePayment()
+    [method]()
     .accounts({
-      authority:     oracleKeypair.publicKey,
-      freelancer:    escrow.freelancer,
+      ...extraAccounts,
       client:        escrow.client,
       escrowAccount: escrowPubkey,
       vaultAccount:  vaultPda,
@@ -76,27 +69,21 @@ export async function releasePayment(job: StoredJob): Promise<string> {
   return txSig as string;
 }
 
+// ─── RELEASE PAYMENT ───────────────────────────────────────────────────────────
+
+export async function releasePayment(job: StoredJob): Promise<string> {
+  return sendOracleTx("releasePayment", job, {
+    authority:  oracleKeypair.publicKey,
+    freelancer: job.escrow.freelancer,
+  });
+}
+
 // ─── CANCEL JOB ───────────────────────────────────────────────────────────────
 
 export async function cancelJob(job: StoredJob): Promise<string> {
-  const { escrow, escrowPubkey } = job;
-
-  const vaultPda = deriveVaultPda(escrow.client, escrow.jobId);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const txSig = await (program.methods as any)
-    .cancelJob()
-    .accounts({
-      oracle:        oracleKeypair.publicKey,
-      client:        escrow.client,
-      escrowAccount: escrowPubkey,
-      vaultAccount:  vaultPda,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([oracleKeypair])
-    .rpc({ commitment: "confirmed" });
-
-  return txSig as string;
+  return sendOracleTx("cancelJob", job, {
+    oracle: oracleKeypair.publicKey,
+  });
 }
 
 export { connection, oracleKeypair };
