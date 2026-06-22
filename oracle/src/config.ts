@@ -40,7 +40,14 @@ export const config = {
     rejectionThreshold: optionalNumber("REJECTION_CONFIDENCE_THRESHOLD", 0.75),
   },
   server: {
-    port: parseInt(optional("PORT", "3001"), 10),
+    port: (() => {
+      const raw = optional("PORT", "3001");
+      const parsed = parseInt(raw, 10);
+      if (isNaN(parsed) || parsed < 1 || parsed > 65535) {
+        throw new Error(`PORT must be a valid port number (1-65535), got: "${raw}"`);
+      }
+      return parsed;
+    })(),
     corsOrigins: optional("CORS_ALLOWED_ORIGINS", ""),
     rateLimitWindowMs: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
     rateLimitMax: optionalNumber("RATE_LIMIT_MAX_REQUESTS", 20),
