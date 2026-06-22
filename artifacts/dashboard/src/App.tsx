@@ -3,7 +3,7 @@ import { Switch, Route, Router as WouterRouter, Link, useLocation } from "wouter
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Activity, LayoutDashboard, List, PlusCircle, X, Menu } from "lucide-react";
+import { Activity, LayoutDashboard, List, PlusCircle, X, Menu, Hexagon } from "lucide-react";
 import { SolanaWalletProvider } from "@/components/wallet-provider";
 import { WalletButton } from "@/components/wallet-button";
 import NotFound from "@/pages/not-found";
@@ -29,13 +29,16 @@ const NAV = [
 
 function Logo() {
   return (
-    <div className="flex items-center gap-2.5">
-      <div className="w-8 h-8 bg-primary flex items-center justify-center text-primary-foreground font-black text-sm font-mono shrink-0">
-        M
+    <div className="flex items-center gap-3">
+      <div className="relative w-8 h-8 flex items-center justify-center shrink-0">
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-400/20 to-purple-500/20 rounded-xl blur-sm" />
+        <div className="relative w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-400 flex items-center justify-center shadow-[0_0_16px_rgba(20,241,149,0.3)]">
+          <Hexagon className="w-4 h-4 text-black fill-black/20" strokeWidth={2.5} />
+        </div>
       </div>
       <div>
-        <div className="font-bold text-sm tracking-tight leading-none">Mappers</div>
-        <div className="text-[10px] text-muted-foreground font-mono leading-none mt-0.5">Protocol</div>
+        <div className="font-bold text-[13px] tracking-tight leading-none text-white">Mappers</div>
+        <div className="text-[9px] text-emerald-400/60 font-mono leading-none mt-0.5 uppercase tracking-widest">Protocol</div>
       </div>
     </div>
   );
@@ -43,34 +46,47 @@ function Logo() {
 
 function DesktopSidebar({ location }: { location: string }) {
   return (
-    <aside className="hidden md:flex flex-col w-56 shrink-0 border-r border-border bg-sidebar min-h-screen">
-      <div className="h-14 flex items-center px-5 border-b border-border">
-        <Logo />
-      </div>
-      <nav className="flex-1 py-4 px-2 space-y-0.5">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = location === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`flex items-center gap-3 px-3 py-2.5 text-sm font-mono transition-all ${
-                active
-                  ? "bg-primary/10 text-primary border-l-2 border-primary"
-                  : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent border-l-2 border-transparent"
-              }`}
-            >
-              <Icon className="w-4 h-4 shrink-0" />
-              {label}
-            </Link>
-          );
-        })}
-      </nav>
-      <div className="px-3 py-3 border-t border-border space-y-3">
-        <WalletButton />
-        <div className="text-[10px] font-mono text-muted-foreground leading-relaxed px-1">
-          <div className="text-primary/80">DEVNET</div>
-          <div className="truncate">52yt1g...KX2Mu</div>
+    <aside className="hidden md:flex flex-col w-60 shrink-0 min-h-screen relative">
+      {/* Glass sidebar */}
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-2xl border-r border-white/[0.06]" />
+      {/* Gradient accent */}
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
+
+      <div className="relative z-10 flex flex-col h-full">
+        <div className="h-16 flex items-center px-5 border-b border-white/[0.05]">
+          <Logo />
+        </div>
+
+        <nav className="flex-1 py-4 px-3 space-y-1">
+          {NAV.map(({ href, label, icon: Icon }) => {
+            const active = location === href || (href === "/jobs" && location.startsWith("/jobs/") && location !== "/jobs/new");
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`group flex items-center gap-3 px-3 py-2.5 text-sm font-mono rounded-xl transition-all duration-200 ${
+                  active
+                    ? "bg-gradient-to-r from-emerald-500/15 to-emerald-500/5 text-emerald-400 border border-emerald-500/20 shadow-[0_0_20px_rgba(20,241,149,0.05)]"
+                    : "text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent"
+                }`}
+              >
+                <Icon className={`w-4 h-4 shrink-0 transition-all ${active ? "text-emerald-400" : "group-hover:text-white/70"}`} />
+                {label}
+                {active && <div className="ml-auto w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(20,241,149,0.8)]" />}
+              </Link>
+            );
+          })}
+        </nav>
+
+        <div className="px-3 pb-4 pt-2 border-t border-white/[0.05] space-y-3">
+          <WalletButton />
+          <div className="glass rounded-xl px-3 py-2.5 space-y-1">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_6px_rgba(20,241,149,0.8)]" />
+              <span className="text-[9px] font-mono text-emerald-400/80 uppercase tracking-widest">Devnet</span>
+            </div>
+            <div className="text-[9px] font-mono text-white/30 truncate">52yt1g…KX2Mu</div>
+          </div>
         </div>
       </div>
     </aside>
@@ -79,16 +95,16 @@ function DesktopSidebar({ location }: { location: string }) {
 
 function MobileHeader({ onMenu }: { onMenu: () => void }) {
   return (
-    <header className="md:hidden flex items-center justify-between h-14 px-4 border-b border-border bg-sidebar shrink-0 gap-2">
+    <header className="md:hidden flex items-center justify-between h-14 px-4 border-b border-white/[0.06] bg-black/40 backdrop-blur-2xl shrink-0 gap-2 relative z-30">
       <Logo />
       <div className="flex items-center gap-2">
         <WalletButton compact />
         <button
           onClick={onMenu}
-          className="w-10 h-10 flex items-center justify-center text-muted-foreground hover:text-foreground active:bg-accent/50 transition-colors"
+          className="w-9 h-9 flex items-center justify-center text-white/40 hover:text-white/80 glass rounded-xl transition-all duration-200 active:scale-95"
           aria-label="Open menu"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="w-4.5 h-4.5" />
         </button>
       </div>
     </header>
@@ -108,20 +124,20 @@ function MobileDrawer({
   return (
     <div className="md:hidden fixed inset-0 z-50 flex">
       <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div className="relative w-72 max-w-[85vw] bg-sidebar border-r border-border flex flex-col shadow-2xl animate-in slide-in-from-left-4 duration-200">
-        <div className="h-14 flex items-center justify-between px-5 border-b border-border">
+      <div className="relative w-72 max-w-[85vw] bg-black/80 backdrop-blur-2xl border-r border-white/[0.07] flex flex-col shadow-[4px_0_32px_rgba(0,0,0,0.6)] animate-in slide-in-from-left-4 duration-200">
+        <div className="h-14 flex items-center justify-between px-5 border-b border-white/[0.06]">
           <Logo />
           <button
             onClick={onClose}
-            className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground active:bg-accent/50 transition-colors"
+            className="w-8 h-8 flex items-center justify-center text-white/40 hover:text-white/80 glass rounded-lg transition-all active:scale-95"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
-        <nav className="flex-1 py-4 px-3 space-y-0.5">
+        <nav className="flex-1 py-4 px-3 space-y-1">
           {NAV.map(({ href, label, icon: Icon }) => {
             const active = location === href;
             return (
@@ -129,10 +145,10 @@ function MobileDrawer({
                 key={href}
                 href={href}
                 onClick={onClose}
-                className={`flex items-center gap-3 px-3 py-3 text-sm font-mono transition-all ${
+                className={`group flex items-center gap-3 px-3 py-3 text-sm font-mono rounded-xl transition-all duration-200 ${
                   active
-                    ? "bg-primary/10 text-primary border-l-2 border-primary"
-                    : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent border-l-2 border-transparent"
+                    ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/20"
+                    : "text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent"
                 }`}
               >
                 <Icon className="w-4 h-4 shrink-0" />
@@ -141,11 +157,11 @@ function MobileDrawer({
             );
           })}
         </nav>
-        <div className="px-4 py-4 border-t border-border space-y-3">
+        <div className="px-4 py-4 border-t border-white/[0.05] space-y-3">
           <WalletButton />
-          <div className="text-[10px] font-mono text-muted-foreground space-y-0.5">
-            <div className="text-primary/80 font-medium">SOLANA DEVNET</div>
-            <div className="break-all text-[9px] leading-relaxed opacity-70">
+          <div className="text-[9px] font-mono text-white/30 space-y-0.5">
+            <div className="text-emerald-400/60 font-medium uppercase tracking-widest">Solana Devnet</div>
+            <div className="break-all text-[8.5px] leading-relaxed">
               52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu
             </div>
           </div>
@@ -157,18 +173,18 @@ function MobileDrawer({
 
 function MobileBottomNav({ location }: { location: string }) {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex border-t border-border bg-sidebar/95 backdrop-blur-md">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 flex border-t border-white/[0.06] bg-black/70 backdrop-blur-2xl">
       {NAV.map(({ href, label, icon: Icon }) => {
         const active = location === href;
         return (
           <Link
             key={href}
             href={href}
-            className={`flex-1 flex flex-col items-center justify-center gap-1 py-2.5 min-h-[56px] transition-colors ${
-              active ? "text-primary" : "text-muted-foreground hover:text-foreground"
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-2.5 min-h-[56px] transition-all duration-200 ${
+              active ? "text-emerald-400" : "text-white/30 hover:text-white/60"
             }`}
           >
-            <Icon className={`w-5 h-5 ${active ? "stroke-[2.5px]" : ""}`} />
+            <Icon className={`w-5 h-5 transition-all ${active ? "drop-shadow-[0_0_6px_rgba(20,241,149,0.6)]" : ""}`} strokeWidth={active ? 2.5 : 2} />
             <span className="text-[9px] font-mono uppercase tracking-wider">{label}</span>
           </Link>
         );
@@ -182,7 +198,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="flex min-h-screen w-full bg-background">
+    <div className="flex min-h-dvh w-full">
       <DesktopSidebar location={location} />
 
       <MobileDrawer
