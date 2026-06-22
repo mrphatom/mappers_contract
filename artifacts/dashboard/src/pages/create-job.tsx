@@ -1,29 +1,32 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
+import { Plus, Trash2 } from "lucide-react";
 import { useCreateJob } from "@workspace/api-client-react";
+
+const INPUT =
+  "w-full px-3 py-3 text-sm font-mono bg-input border border-border text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/50 transition-colors min-h-[44px]";
 
 function Field({
   label,
-  children,
   hint,
+  children,
 }: {
   label: string;
-  children: React.ReactNode;
   hint?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-xs font-mono font-bold text-muted-foreground uppercase tracking-widest">
+    <div className="flex flex-col gap-2">
+      <label className="text-[10px] font-mono font-bold text-muted-foreground uppercase tracking-widest">
         {label}
       </label>
       {children}
-      {hint && <span className="text-xs font-mono text-muted-foreground">{hint}</span>}
+      {hint && (
+        <p className="text-[10px] font-mono text-muted-foreground leading-relaxed">{hint}</p>
+      )}
     </div>
   );
 }
-
-const INPUT =
-  "w-full px-3 py-2 text-sm font-mono bg-input border border-border text-foreground placeholder:text-muted-foreground/50 outline-none focus:border-primary/50 transition-colors";
 
 export default function CreateJob() {
   const [, navigate] = useLocation();
@@ -37,12 +40,13 @@ export default function CreateJob() {
     amountSol: "",
     description: "",
   });
-
   const [criteria, setCriteria] = useState<string[]>([""]);
   const [error, setError] = useState<string | null>(null);
 
-  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [key]: e.target.value }));
+  const set =
+    (key: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const addCriterion = () => setCriteria((c) => [...c, ""]);
   const removeCriterion = (i: number) =>
@@ -56,7 +60,7 @@ export default function CreateJob() {
 
     const amountLamports = Math.round(parseFloat(form.amountSol) * 1e9);
     if (isNaN(amountLamports) || amountLamports <= 0) {
-      setError("Amount must be a valid positive SOL value.");
+      setError("Enter a valid positive SOL amount.");
       return;
     }
 
@@ -75,150 +79,168 @@ export default function CreateJob() {
         },
       },
       {
-        onSuccess: (job) => {
-          navigate(`/jobs/${job.jobId}`);
-        },
-        onError: (err) => {
-          setError(err instanceof Error ? err.message : "Failed to register job.");
-        },
+        onSuccess: (job) => navigate(`/jobs/${job.jobId}`),
+        onError: (err) =>
+          setError(err instanceof Error ? err.message : "Failed to register job."),
       }
     );
   };
 
   return (
     <div className="flex-1 flex flex-col">
-      <div className="border-b border-border px-8 py-5">
-        <h1 className="text-xl font-bold font-mono tracking-tight">Create Job</h1>
-        <p className="text-xs text-muted-foreground font-mono mt-0.5">
-          Register a new escrow job in the protocol database.
+      {/* Header */}
+      <div className="border-b border-border px-4 md:px-8 py-4 md:py-5">
+        <h1 className="text-lg md:text-xl font-bold font-mono tracking-tight">Create Job</h1>
+        <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+          Register a new escrow job in the protocol database
         </p>
       </div>
 
-      <div className="flex-1 p-8 max-w-2xl">
-        <div className="border border-border bg-card p-1 mb-6 text-xs font-mono text-muted-foreground px-4 py-3 border-l-2 border-l-primary/50">
-          This form pre-registers the job in our database. The actual on-chain escrow transaction
-          requires a connected Solana wallet (wallet adapter integration coming soon).
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <Field label="Job ID" hint="Max 32 chars. Use a short unique identifier (e.g. 'gig-001').">
-            <input
-              className={INPUT}
-              placeholder="gig-001"
-              value={form.jobId}
-              onChange={set("jobId")}
-              maxLength={32}
-              required
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-            <Field label="Client Public Key" hint="Base58 Solana address.">
-              <input
-                className={INPUT}
-                placeholder="6LUVzT...rFq9W"
-                value={form.clientPubkey}
-                onChange={set("clientPubkey")}
-                required
-              />
-            </Field>
-            <Field label="Freelancer Public Key" hint="Base58 Solana address.">
-              <input
-                className={INPUT}
-                placeholder="9Kx2bP...uMn3R"
-                value={form.freelancerPubkey}
-                onChange={set("freelancerPubkey")}
-                required
-              />
-            </Field>
+      <div className="flex-1 overflow-y-auto p-4 md:p-8">
+        <div className="max-w-xl mx-auto space-y-6">
+          {/* Info banner */}
+          <div className="border border-primary/20 bg-primary/5 px-4 py-3 text-[11px] font-mono text-muted-foreground leading-relaxed border-l-2 border-l-primary/50">
+            This registers the job in our database. The on-chain escrow transaction requires a
+            connected Solana wallet — wallet adapter integration coming soon.
           </div>
 
-          <Field label="Oracle Public Key" hint="The AI oracle keypair that will adjudicate this escrow.">
-            <input
-              className={INPUT}
-              placeholder="52yt1g...KX2Mu"
-              value={form.oraclePubkey}
-              onChange={set("oraclePubkey")}
-              required
-            />
-          </Field>
+          <form onSubmit={handleSubmit} className="space-y-5">
+            <Field label="Job ID" hint="Max 32 characters. Use a short unique identifier (e.g. gig-001).">
+              <input
+                className={INPUT}
+                placeholder="gig-001"
+                value={form.jobId}
+                onChange={set("jobId")}
+                maxLength={32}
+                required
+                autoComplete="off"
+                autoCapitalize="none"
+              />
+            </Field>
 
-          <Field label="Amount (SOL)" hint="Escrow amount in SOL. Converted to lamports on submit.">
-            <input
-              className={INPUT}
-              type="number"
-              step="0.000000001"
-              min="0"
-              placeholder="1.5"
-              value={form.amountSol}
-              onChange={set("amountSol")}
-              required
-            />
-          </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <Field label="Client Public Key" hint="Base58 Solana address.">
+                <input
+                  className={INPUT}
+                  placeholder="6LUVzT…rFq9W"
+                  value={form.clientPubkey}
+                  onChange={set("clientPubkey")}
+                  required
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </Field>
+              <Field label="Freelancer Public Key" hint="Base58 Solana address.">
+                <input
+                  className={INPUT}
+                  placeholder="9Kx2bP…uMn3R"
+                  value={form.freelancerPubkey}
+                  onChange={set("freelancerPubkey")}
+                  required
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                />
+              </Field>
+            </div>
 
-          <Field label="Description" hint="Optional: describe the work being commissioned.">
-            <textarea
-              className={`${INPUT} resize-none`}
-              rows={3}
-              placeholder="Build a Solana token staking UI..."
-              value={form.description}
-              onChange={set("description")}
-            />
-          </Field>
+            <Field label="Oracle Public Key" hint="The AI oracle keypair that will adjudicate this escrow.">
+              <input
+                className={INPUT}
+                placeholder="52yt1g…KX2Mu"
+                value={form.oraclePubkey}
+                onChange={set("oraclePubkey")}
+                required
+                autoComplete="off"
+                autoCapitalize="none"
+                spellCheck={false}
+              />
+            </Field>
 
-          <Field label="Acceptance Criteria" hint="Each criterion the AI oracle will evaluate against.">
-            <div className="space-y-2">
-              {criteria.map((c, i) => (
-                <div key={i} className="flex gap-2">
-                  <input
-                    className={`${INPUT} flex-1`}
-                    placeholder={`Criterion ${i + 1}`}
-                    value={c}
-                    onChange={(e) => setCriterion(i, e.target.value)}
-                  />
-                  {criteria.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeCriterion(i)}
-                      className="px-3 text-xs font-mono text-destructive border border-destructive/30 hover:bg-destructive/10 transition-colors"
-                    >
-                      ✕
-                    </button>
-                  )}
-                </div>
-              ))}
+            <Field label="Amount (SOL)" hint="Escrow amount in SOL. Converted to lamports on submit.">
+              <input
+                className={INPUT}
+                type="number"
+                step="0.000000001"
+                min="0.000000001"
+                inputMode="decimal"
+                placeholder="1.5"
+                value={form.amountSol}
+                onChange={set("amountSol")}
+                required
+              />
+            </Field>
+
+            <Field label="Description" hint="Optional: describe the work being commissioned.">
+              <textarea
+                className={`${INPUT} resize-none`}
+                rows={3}
+                placeholder="Build a Solana token staking UI…"
+                value={form.description}
+                onChange={set("description")}
+              />
+            </Field>
+
+            <Field
+              label="Acceptance Criteria"
+              hint="Each criterion the AI oracle will evaluate against."
+            >
+              <div className="space-y-2">
+                {criteria.map((c, i) => (
+                  <div key={i} className="flex gap-2">
+                    <input
+                      className={`${INPUT} flex-1`}
+                      placeholder={`Criterion ${i + 1}…`}
+                      value={c}
+                      onChange={(e) => setCriterion(i, e.target.value)}
+                    />
+                    {criteria.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeCriterion(i)}
+                        className="w-11 h-11 flex items-center justify-center border border-destructive/30 text-destructive hover:bg-destructive/10 active:bg-destructive/20 transition-colors shrink-0"
+                        aria-label="Remove criterion"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={addCriterion}
+                  className="flex items-center gap-1.5 text-xs font-mono text-muted-foreground hover:text-primary active:text-primary/80 transition-colors py-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add criterion
+                </button>
+              </div>
+            </Field>
+
+            {error && (
+              <div className="border border-destructive/30 bg-destructive/10 px-4 py-3 text-xs font-mono text-destructive">
+                {error}
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
-                type="button"
-                onClick={addCriterion}
-                className="text-xs font-mono text-muted-foreground hover:text-primary transition-colors"
+                type="submit"
+                disabled={createJob.isPending}
+                className="flex-1 sm:flex-none px-6 py-3 text-xs font-mono font-bold bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[48px]"
               >
-                + Add criterion
+                {createJob.isPending ? "Registering…" : "Register Job"}
               </button>
+              <a
+                href="/jobs"
+                className="flex-1 sm:flex-none px-6 py-3 text-xs font-mono text-center border border-border text-muted-foreground hover:text-foreground hover:border-border/80 active:bg-accent/30 transition-colors min-h-[48px] flex items-center justify-center"
+              >
+                Cancel
+              </a>
             </div>
-          </Field>
-
-          {error && (
-            <div className="border border-destructive/30 bg-destructive/10 px-4 py-2 text-xs font-mono text-destructive">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={createJob.isPending}
-              className="px-6 py-2 text-xs font-mono font-bold bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {createJob.isPending ? "REGISTERING..." : "REGISTER JOB"}
-            </button>
-            <a
-              href="/jobs"
-              className="px-6 py-2 text-xs font-mono border border-border text-muted-foreground hover:text-foreground hover:border-border/80 transition-colors"
-            >
-              Cancel
-            </a>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
