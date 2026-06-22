@@ -41,6 +41,10 @@ export const config = {
   },
   server: {
     port: parseInt(optional("PORT", "3001"), 10),
+    corsOrigins: optional("CORS_ALLOWED_ORIGINS", ""),
+    rateLimitWindowMs: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
+    rateLimitMax: optionalNumber("RATE_LIMIT_MAX_REQUESTS", 20),
+    apiKey: optional("ORACLE_API_KEY", ""),
   },
   sentry: {
     dsn:     optional("SENTRY_DSN", ""),
