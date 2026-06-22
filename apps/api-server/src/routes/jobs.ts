@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq, and, sql, type SQL } from "drizzle-orm";
 import { db, jobsTable } from "@workspace/db";
 import {
   ListJobsQueryParams,
@@ -30,13 +30,13 @@ router.get("/jobs", async (req, res): Promise<void> => {
 
   const { status, clientPubkey } = parsed.data;
 
-  let query = db.select().from(jobsTable).$dynamic();
+  const conditions: SQL[] = [];
+  if (status) conditions.push(eq(jobsTable.status, status));
+  if (clientPubkey) conditions.push(eq(jobsTable.clientPubkey, clientPubkey));
 
-  if (status) {
-    query = query.where(eq(jobsTable.status, status));
-  }
-  if (clientPubkey) {
-    query = query.where(eq(jobsTable.clientPubkey, clientPubkey));
+  let query = db.select().from(jobsTable).$dynamic();
+  if (conditions.length > 0) {
+    query = query.where(and(...conditions));
   }
 
   const jobs = await query.orderBy(jobsTable.createdAt);
