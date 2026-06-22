@@ -7,8 +7,21 @@ import { GigEscrow, StoredJob } from "./types";
 // ─── PROGRAM SETUP ────────────────────────────────────────────────────────────
 
 function loadOracleKeypair(): Keypair {
-  const decoded = bs58.decode(config.solana.oraclePrivateKey);
-  return Keypair.fromSecretKey(decoded);
+  let decoded: Uint8Array;
+  try {
+    decoded = bs58.decode(config.solana.oraclePrivateKey);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to base58-decode ORACLE_PRIVATE_KEY: ${message}`);
+  }
+  try {
+    return Keypair.fromSecretKey(decoded);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `ORACLE_PRIVATE_KEY decoded but is not a valid Solana secret key (${decoded.length} bytes): ${message}`
+    );
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -47,9 +60,16 @@ function deriveVaultPda(clientPubkey: PublicKey, jobId: string): PublicKey {
 // ─── FETCH ESCROW ─────────────────────────────────────────────────────────────
 
 export async function fetchEscrow(escrowPubkey: PublicKey): Promise<GigEscrow> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const escrow = await (program.account as any).gigEscrow.fetch(escrowPubkey) as GigEscrow;
-  return escrow;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const escrow = await (program.account as any).gigEscrow.fetch(escrowPubkey) as GigEscrow;
+    return escrow;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Failed to fetch escrow account ${escrowPubkey.toBase58()}: ${message}`
+    );
+  }
 }
 
 // ─── RELEASE PAYMENT ─────────────────────────────────────────────────────────
@@ -59,21 +79,28 @@ export async function releasePayment(job: StoredJob): Promise<string> {
 
   const vaultPda = deriveVaultPda(escrow.client, escrow.jobId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const txSig = await (program.methods as any)
-    .releasePayment()
-    .accounts({
-      authority:     oracleKeypair.publicKey,
-      freelancer:    escrow.freelancer,
-      client:        escrow.client,
-      escrowAccount: escrowPubkey,
-      vaultAccount:  vaultPda,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([oracleKeypair])
-    .rpc({ commitment: "confirmed" });
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const txSig = await (program.methods as any)
+      .releasePayment()
+      .accounts({
+        authority:     oracleKeypair.publicKey,
+        freelancer:    escrow.freelancer,
+        client:        escrow.client,
+        escrowAccount: escrowPubkey,
+        vaultAccount:  vaultPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([oracleKeypair])
+      .rpc({ commitment: "confirmed" });
 
-  return txSig as string;
+    return txSig as string;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `release_payment tx failed for job "${escrow.jobId}" (escrow: ${escrowPubkey.toBase58()}): ${message}`
+    );
+  }
 }
 
 // ─── CANCEL JOB ───────────────────────────────────────────────────────────────
@@ -83,20 +110,27 @@ export async function cancelJob(job: StoredJob): Promise<string> {
 
   const vaultPda = deriveVaultPda(escrow.client, escrow.jobId);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const txSig = await (program.methods as any)
-    .cancelJob()
-    .accounts({
-      oracle:        oracleKeypair.publicKey,
-      client:        escrow.client,
-      escrowAccount: escrowPubkey,
-      vaultAccount:  vaultPda,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([oracleKeypair])
-    .rpc({ commitment: "confirmed" });
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const txSig = await (program.methods as any)
+      .cancelJob()
+      .accounts({
+        oracle:        oracleKeypair.publicKey,
+        client:        escrow.client,
+        escrowAccount: escrowPubkey,
+        vaultAccount:  vaultPda,
+        systemProgram: SystemProgram.programId,
+      })
+      .signers([oracleKeypair])
+      .rpc({ commitment: "confirmed" });
 
-  return txSig as string;
+    return txSig as string;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `cancel_job tx failed for job "${escrow.jobId}" (escrow: ${escrowPubkey.toBase58()}): ${message}`
+    );
+  }
 }
 
 export { connection, oracleKeypair };

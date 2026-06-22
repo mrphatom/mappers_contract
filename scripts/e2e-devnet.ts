@@ -73,7 +73,9 @@ async function checkOracleHealth(): Promise<boolean> {
   try {
     const res = await fetch(`${ORACLE_URL}/health`);
     return res.ok;
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[health] Oracle health check failed: ${message}`);
     return false;
   }
 }
@@ -82,7 +84,9 @@ async function checkJobInOracle(jobId: string): Promise<boolean> {
   try {
     const res = await fetch(`${ORACLE_URL}/jobs/${jobId}`);
     return res.ok;
-  } catch {
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.warn(`[poll] Job poll failed for ${jobId}: ${message}`);
     return false;
   }
 }
@@ -119,6 +123,12 @@ console.log(sumArray([]));              // 0
       deliverableType: "text",
     }),
   });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Oracle /submit returned HTTP ${res.status}: ${body}`);
+  }
+
   return res.json();
 }
 
@@ -240,8 +250,16 @@ async function main() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await (program.account as any).gigEscrow.fetch(escrowPda);
       console.log("\n⚠️  Escrow account still exists — close may be pending");
-    } catch {
-      console.log("\n✅ Escrow account closed — rent returned to client");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const isAccountGone =
+        message.includes("Account does not exist") ||
+        message.includes("could not find account");
+      if (isAccountGone) {
+        console.log("\n✅ Escrow account closed — rent returned to client");
+      } else {
+        console.error(`\n⚠️  Failed to verify escrow state: ${message}`);
+      }
     }
   }
 

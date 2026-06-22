@@ -67,12 +67,24 @@ async function verifyWithGemini(
   const prompt = buildVerificationPrompt(job, artifact);
   const model  = genAI.getGenerativeModel({ model: config.ai.geminiModel });
 
-  const result = await model.generateContent({
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-  });
+  let result;
+  try {
+    result = await model.generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Gemini API call failed: ${message}`);
+  }
 
-  const text = result.response.text().trim();
+  const text = result.response.text()?.trim();
+  if (!text) {
+    throw new Error(
+      "Gemini returned an empty response (possible safety filter or content block)"
+    );
+  }
+
   const parsed = parseModelResponse(text);
 
   return {
@@ -93,21 +105,41 @@ async function verifyWithClaude(
 ): Promise<ModelVerdict> {
   const prompt = buildVerificationPrompt(job, artifact);
 
-  const message = await anthropic.messages.create({
-    model:      config.ai.anthropicModel,
-    max_tokens: 1024,
-    messages:   [{ role: "user", content: prompt }],
-    system:
-      "You are an autonomous task verification oracle. You evaluate freelance deliverables against stated criteria. " +
-      "You must respond ONLY with a valid JSON object matching the requested schema. No other text.",
-  });
+  let message;
+  try {
+    message = await anthropic.messages.create({
+      model:      config.ai.anthropicModel,
+      max_tokens: 1024,
+      messages:   [{ role: "user", content: prompt }],
+      system:
+        "You are an autonomous task verification oracle. You evaluate freelance deliverables against stated criteria. " +
+        "You must respond ONLY with a valid JSON object matching the requested schema. No other text.",
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Claude API call failed: ${msg}`);
+  }
+
+  if (!message.content.length) {
+    throw new Error(
+      `Claude returned an empty response (stop_reason: ${message.stop_reason})`
+    );
+  }
 
   const content = message.content[0];
   if (content.type !== "text") {
-    throw new Error("Unexpected response type from Claude API");
+    throw new Error(
+      `Unexpected Claude response content type: "${content.type}" (expected "text")`
+    );
   }
 
   const text   = content.text.trim();
+  if (!text) {
+    throw new Error(
+      `Claude returned a text block with no content (stop_reason: ${message.stop_reason})`
+    );
+  }
+
   const parsed = parseModelResponse(text);
 
   return {
