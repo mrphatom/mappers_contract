@@ -37,3 +37,5 @@ pnpm-debug.log*
 # Editor
 .vscode/settings.json
 .idea/
+
+.mailmap
