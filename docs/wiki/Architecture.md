@@ -1,117 +1,120 @@
 # Architecture
 
-Mappers operates through three tightly coupled layers. This page describes each layer, the on-chain account architecture, the job lifecycle state machine, and the security properties of the escrow program. It is derived from the [whitepaper](../../mappers_whitepaper.md) (sections 3–6, 10) and the root [`README.md`](../../README.md).
+Mappers operates through five integrated layers: an on-chain escrow engine, an oracle middleware, a dual-model AI consensus loop, a REST API server, and a client dashboard. This page describes the full system architecture, on-chain account design, job lifecycle, and security properties.
 
 ---
 
 ## System Overview
 
 ```
-Client (Next.js 14 App Router — Solana Wallet Adapter)
-      │ initialize_job (on-chain tx)
-      ▼
-On-Chain Escrow Engine (Anchor 0.30 / Rust)
-  ├─ GigEscrow PDA  — job state
-  └─ Vault PDA      — locked SOL custody
-      │ Helius gRPC event stream
-      ▼
-Oracle Middleware (Node.js — Helius/QuickNode gRPC listener)
-      │ Event Detection → Artifact Ingestion → Verification Request
-      ▼
-Dual-Model AI Consensus Loop (Manus AI Pro orchestrator)
-  Gemini API (Primary Pass) ──┐
-                              ├─ structured JSON consensus check
-  Anthropic Claude (Cross-Validator) ──┘
-      │ release_payment / cancel_job (tx)
-      ▼
-On-Chain Program Execution
+Dashboard (Vite + React 19)
+      | HTTP (TanStack Query hooks)
+      v
+API Server (Express 5 + Drizzle ORM + PostgreSQL)
+      | fetch() to oracle
+      v
+Oracle Middleware (Node.js)
+      | gRPC event stream (Helius)       | parallel AI calls
+      v                                  v
+On-Chain Escrow Engine          Dual-Model AI Consensus
+  (Anchor / Rust)                 Gemini + Claude
+  |-- GigEscrow PDA                    |
+  |-- Vault PDA                        | consensus
+      ^                                v
+      |---- release_payment / cancel_job (on-chain tx) ----|
 ```
+
+### Data Flow
+
+1. **Client creates a job** — The dashboard calls the API server, which registers the job in PostgreSQL. Separately, the client signs an `initialize_job` transaction on-chain.
+2. **Oracle detects the job** — The oracle middleware subscribes to Helius gRPC and detects new escrow accounts in real time.
+3. **Freelancer submits a deliverable** — The dashboard sends the deliverable to the API server, which proxies it to the oracle.
+4. **AI verification** — The oracle dispatches the deliverable to Gemini and Claude in parallel. Both return structured verdicts.
+5. **Settlement** — If consensus is reached, the oracle signs either `release_payment` or `cancel_job` on-chain.
 
 ---
 
 ## Layer 1 — On-Chain Escrow Engine (Anchor / Rust)
 
-Tracks job lifecycle state and holds client funds inside dual Program Derived Address (PDA) vaults — one for metadata, one for lamports. All state transitions are irreversible and publicly auditable on-chain.
+Tracks job lifecycle state and holds client funds inside dual Program Derived Address (PDA) vaults. All state transitions are irreversible and publicly auditable on-chain.
 
-### Program Derived Address Architecture
+### PDA Architecture
 
-Mappers uses **two separate PDAs per job**, a pattern critical for security and for enabling the System Program's native lamport transfer CPI:
+Mappers uses **two separate PDAs per job**:
 
-**GigEscrow Account** — stores all job metadata and lifecycle state.
+**GigEscrow Account** — stores job metadata and lifecycle state.
 ```
 seeds = ["gig-escrow", client_pubkey, job_id]
 ```
 
-**Vault Account** — a data-less, System Program-owned account that holds the client's locked SOL.
+**Vault Account** — a data-less, System Program-owned account holding locked SOL.
 ```
 seeds = ["vault", client_pubkey, job_id]
 ```
 
-The separation is non-trivial: the vault must be owned by the System Program for native lamport transfers to work. If the vault and escrow were merged into one account, Anchor's ownership model would conflict with the System Program's signer authority requirements during CPI.
+The separation is required because the vault must be owned by the System Program for native lamport transfers to work. If the vault and escrow were merged, Anchor's ownership model would conflict with the System Program's signer authority requirements during CPI.
 
-Both bumps — `escrow_bump` and `vault_bump` — are stored on the `GigEscrow` state account at initialization. This eliminates `find_program_address` calls on every `release_payment` and `cancel_job` instruction, saving approximately 25,000 compute units per bump lookup (~50,000 CU total per resolution transaction).
+Both bumps (`escrow_bump` and `vault_bump`) are stored on the GigEscrow account at initialization, eliminating `find_program_address` calls on resolution instructions (~50,000 CU saved per transaction).
 
 ### GigEscrow State Schema
 
 ```rust
 pub struct GigEscrow {
-    pub client:      Pubkey,    // 32 bytes — original funder, refund target
-    pub freelancer:  Pubkey,    // 32 bytes — payment recipient
-    pub oracle:      Pubkey,    // 32 bytes — authorized AI middleware key
-    pub amount:      u64,       // 8 bytes  — locked lamports
-    pub job_id:      String,    // 36 bytes — max 32-char identifier + 4-byte prefix
-    pub status:      JobStatus, // 1 byte   — Pending / Completed / Cancelled
-    pub escrow_bump: u8,        // 1 byte   — GigEscrow PDA canonical bump
-    pub vault_bump:  u8,        // 1 byte   — Vault PDA canonical bump
+    pub client:      Pubkey,    // 32 bytes
+    pub freelancer:  Pubkey,    // 32 bytes
+    pub oracle:      Pubkey,    // 32 bytes
+    pub amount:      u64,       // 8 bytes
+    pub job_id:      String,    // 4 + 32 bytes (max)
+    pub status:      JobStatus, // 1 byte
+    pub escrow_bump: u8,        // 1 byte
+    pub vault_bump:  u8,        // 1 byte
 }
-// Total allocated space: 151 bytes (including 8-byte Anchor discriminator)
-```
-
-Space breakdown:
-```
-GigEscrow::MAXIMUM_SPACE = 151 bytes
-8  (discriminator) + 32 (client) + 32 (freelancer) + 32 (oracle)
-+ 8 (amount) + 4 (string prefix) + 32 (job_id) + 1 (status)
-+ 1 (escrow_bump) + 1 (vault_bump)
+// Total: 151 bytes (including 8-byte Anchor discriminator)
 ```
 
 ### Instruction Set
 
 | Instruction | Caller | Effect |
 |---|---|---|
-| `initialize_job(job_id, amount)` | Client | Validates `job_id ≤ 32` bytes and `amount` above the rent-exempt floor, derives both PDAs and stores their canonical bumps, transfers `amount` lamports to the vault via System Program CPI, sets status to `Pending`. |
-| `release_payment()` | Client (manual) or Oracle (autonomous) | Validates status is `Pending` and caller is `escrow.client` or `escrow.oracle`, transfers full vault balance to the freelancer using stored `vault_bump`, sets status to `Completed`, and closes the escrow via `close = client` (rent returned to client). |
-| `cancel_job()` | Oracle only | Validates status is `Pending`, refunds full vault balance to the client, sets status to `Cancelled`, and closes the escrow (rent returned to client). |
+| `initialize_job(job_id, amount)` | Client | Validates inputs, derives PDAs, transfers SOL to vault, sets status to `Pending`. |
+| `release_payment()` | Client or Oracle | Validates `Pending` status, transfers vault balance to freelancer, closes escrow (rent returned to client). |
+| `cancel_job()` | Oracle only | Validates `Pending` status, refunds vault to client, closes escrow. |
 
 ---
 
-## Layer 2 — Oracle Middleware (Node.js / TypeScript)
+## Layer 2 — Oracle Middleware (Node.js)
 
-A persistent off-chain microservice that subscribes to live program events via Helius gRPC streaming. It detects `InitializeJob` events, tracks pending escrows, and bridges freelancer submission artifacts to the AI verification pipeline.
+A persistent off-chain service that bridges on-chain events to the AI verification pipeline.
 
-**Event Detection** — The middleware maintains a gRPC subscription to a Helius RPC node, streaming all transactions that interact with the Mappers program ID in real time (sub-second notification with full account data). On detecting an `InitializeJob` event it:
-1. Deserializes the `GigEscrow` account state using the program IDL.
-2. Extracts `job_id`, `freelancer`, `oracle`, and `amount`.
-3. Stores a pending verification record indexed by `job_id`.
+**Event Detection** — Maintains a gRPC subscription to Helius, streaming all transactions that touch the Mappers program ID. On detecting an `InitializeJob` event:
+1. Deserializes the GigEscrow account using the program IDL.
+2. Extracts job metadata (job_id, freelancer, oracle, amount).
+3. Stores a pending verification record.
 
-**Artifact Ingestion** — When a freelancer marks a job submitted, they attach a deliverable artifact (file hash, URL, structured JSON, or combination). The middleware retrieves it and prepares a structured verification request containing the original job description and acceptance criteria, the submitted deliverable, and the escrow metadata.
+**Artifact Ingestion** — When a freelancer submits a deliverable (URL, IPFS hash, text, or JSON), the oracle retrieves it and packages a verification request containing the original job description, acceptance criteria, and the deliverable content.
+
+**Endpoints:**
+```
+GET  /health      — liveness + pending job count
+GET  /jobs/:jobId — tracked job state
+POST /submit      — trigger AI verification
+```
 
 ---
 
 ## Layer 3 — Dual-Model AI Consensus Loop
 
-Manus AI Pro acts as orchestrator, dispatching verification requests to the Gemini API and Anthropic Claude API in parallel, with no knowledge sharing between models. Payment releases only when both models independently reach structured JSON consensus with confidence above defined thresholds. Divergent verdicts escalate to human arbitration.
+Manus AI Pro orchestrates verification requests to both Gemini and Claude in parallel, with no knowledge sharing between models.
 
-### Verification Verdict Schema
+### Verdict Schema (per model)
 
-Each model independently returns:
 ```json
 {
-  "verdict": "APPROVED" | "REJECTED",
+  "verdict": "APPROVED | REJECTED",
   "confidence": 0.0-1.0,
   "reasoning": "string",
-  "criteria_met": ["list of passed criteria"],
-  "criteria_failed": ["list of failed criteria"]
+  "criteria_met": ["..."],
+  "criteria_failed": ["..."]
 }
 ```
 
@@ -119,48 +122,85 @@ Each model independently returns:
 
 | Gemini | Claude | Outcome |
 |---|---|---|
-| APPROVED (≥0.80) | APPROVED (≥0.80) | `release_payment` → freelancer |
-| REJECTED (≥0.75) | REJECTED (≥0.75) | `cancel_job` → refund client |
-| Divergent (APPROVED/REJECTED) | — | Escalate to human arbitration |
-| Sub-threshold | — | Escalate to human arbitration |
-
-- **Approvals** require confidence ≥ 0.80 from **both** models.
-- **Rejections** require confidence ≥ 0.75 from **both** models.
-- Sub-threshold verdicts are escalated regardless of agreement.
-
-Consensus-driven releases and cancellations are fully autonomous. Divergent verdicts route to a human arbitration queue where the oracle's designated authority keypair (a multisig in production) makes the final call. The majority of straightforward completions settle in seconds with no human involvement.
+| APPROVED (>= 0.80) | APPROVED (>= 0.80) | `release_payment` — freelancer paid |
+| REJECTED (>= 0.75) | REJECTED (>= 0.75) | `cancel_job` — client refunded |
+| Divergent | -- | Escalate to human arbitration |
+| Sub-threshold | -- | Escalate to human arbitration |
 
 ### Why Two Models
 
-A single AI model gating payments is a single point of failure. Two independent models with different training data, architectures, and API implementations must reach the same conclusion for funds to move — raising the bar for manipulation. Deliverable artifacts are sanitized and framed with explicit XML delimiters instructing the model to treat enclosed content as data, not instructions, as a defense against prompt injection.
+A single AI gating payments is a single point of failure. Two independent models with different architectures must agree before funds move. Deliverable artifacts are sanitized with XML delimiters to defend against prompt injection.
+
+---
+
+## Layer 4 — API Server (Express 5)
+
+The REST API (`apps/api-server/`) provides the data layer between the dashboard and the on-chain/oracle systems.
+
+- **Framework:** Express 5 with async route handlers
+- **Database:** PostgreSQL via Drizzle ORM (`lib/db/`)
+- **Validation:** Zod schemas (`lib/api-zod/`) generated from the OpenAPI spec
+- **Logging:** Pino (structured JSON logs)
+- **Error handling:** Global error middleware prevents stack trace leaks
+
+The API server mirrors on-chain job state in PostgreSQL for efficient querying, filtering, and aggregation that would be impractical with direct RPC calls.
+
+---
+
+## Layer 5 — Dashboard (Vite + React 19)
+
+The frontend (`apps/dashboard/`) is a single-page application providing real-time visibility into all escrow jobs.
+
+- **Build:** Vite
+- **UI:** React 19 + shadcn/ui + Tailwind CSS
+- **Data fetching:** TanStack Query via generated hooks (`lib/api-client-react/`)
+- **Type safety:** Shared Zod schemas ensure API responses are validated at runtime
 
 ---
 
 ## Job Lifecycle State Machine
 
-Every job moves through a deterministic state graph enforced entirely on-chain:
+Every job moves through a deterministic state graph enforced on-chain:
 
 ```
-PENDING ──── (oracle or client approves) ────▶ COMPLETED
-   │
-   └──── (oracle arbitrates) ───────────────▶ CANCELLED
+PENDING ---- (oracle or client approves) ----> COMPLETED
+   |
+   +---- (oracle arbitrates) ----------------> CANCELLED
 ```
 
-State transitions are irreversible. Once a job is `COMPLETED` or `CANCELLED`, the escrow account is closed and rent is returned to the client. There is no re-open path, no appeal layer, and no mutable state after resolution.
+State transitions are irreversible. Once a job reaches a terminal state, the escrow account is closed and rent is returned to the client. There is no re-open path.
 
 ---
 
-## Smart Contract Security
+## Workspace Package Graph
 
-The escrow program incorporates production-grade security measures validated through a full internal security audit:
+```
+lib/api-spec          (OpenAPI spec, generates code for:)
+  |-- lib/api-zod     (Zod schemas for request/response validation)
+  |-- lib/api-client-react  (TanStack Query hooks + custom fetch)
 
-- **Dual Bump Storage** — Both `escrow_bump` and `vault_bump` are stored separately on-chain at initialization, preventing the critical runtime failure of using the wrong bump when signing vault transfer CPIs (a bug that would silently revert every payout).
-- **Reentrancy Mitigation** — All escrow state fields (`client`, `oracle`, `amount`, `vault_bump`, `job_id`, `status`) are cached as stack variables before any mutable borrow or CPI executes, closing cross-program invocation attack vectors that re-read modified state mid-execution.
-- **Rent Reclamation** — Both `release_payment` and `cancel_job` carry Anchor's `close = client` constraint. The instant a job resolves, the escrow account is deallocated and 100% of rent-exempt lamports return to the client. Zero lamports are permanently locked post-resolution.
-- **Rent-Exempt Floor Guard** — `initialize_job` enforces `amount >= Rent::get()?.minimum_balance(0)` (~890,880 lamports). Deposits below this would leave the vault susceptible to garbage collection before the freelancer can claim.
-- **Double-Spend Prevention** — The `JobNotPending` guard (`require!(status == JobStatus::Pending)`) is checked before any transfer. Solana's atomic transactions and per-account state locking eliminate races between concurrent `release_payment` and `cancel_job` calls.
-- **Signer Forgery Prevention** — Authority checks use `has_one` constraints (`has_one = freelancer`, `has_one = oracle`, `has_one = client`) at the account validation layer, verifying passed accounts match stored pubkeys before any instruction code runs.
-- **Pinned Bump Constraints** — `bump = escrow_account.escrow_bump` and `bump = escrow_account.vault_bump` constraints are pinned at validation, eliminating two `find_program_address` calls per resolution instruction (~50,000 CU saved per transaction).
+lib/db                (Drizzle schema + PostgreSQL connection)
+lib/sdk               (MappersClient + OracleClient)
+
+apps/api-server       (imports: lib/db, lib/api-zod)
+apps/dashboard        (imports: lib/api-client-react)
+```
+
+Code generation flows from `lib/api-spec` (via [orval](https://orval.dev/)) into both `lib/api-zod` and `lib/api-client-react`, ensuring the API contract is always in sync across the server and client.
+
+---
+
+## Security Properties
+
+- **Dual Bump Storage** — Both PDA bumps stored on-chain at initialization, preventing wrong-bump CPI failures.
+- **Reentrancy Mitigation** — All state fields cached to stack before any mutable borrow or CPI.
+- **Rent Reclamation** — `close = client` constraint ensures zero lamports are permanently locked.
+- **Rent-Exempt Floor Guard** — Deposits below ~890,880 lamports are rejected.
+- **Double-Spend Prevention** — `JobNotPending` guard + Solana's atomic transactions eliminate race conditions.
+- **Signer Forgery Prevention** — `has_one` constraints verify accounts match stored pubkeys before instruction logic runs.
+- **Pinned Bump Constraints** — Pinned at the account validation layer, saving compute units.
+- **Global Error Handler** — API server catches unhandled errors and returns generic 500 responses (no stack trace leaks).
+- **Non-JSON Response Safety** — OracleClient gracefully handles non-JSON responses (e.g., proxy 502 pages) without crashing.
 
 ---
 
@@ -168,17 +208,17 @@ The escrow program incorporates production-grade security measures validated thr
 
 **What is trustless:**
 - Client funds cannot be moved by anyone other than the oracle or the client.
-- The oracle cannot redirect funds to any address other than the stored `freelancer` or `client`.
-- Completed escrows are fully settled — no state can be reopened or modified post-resolution.
+- The oracle cannot redirect funds to any address other than the stored freelancer or client.
+- Completed escrows are fully settled — no state can be reopened post-resolution.
 - All state transitions are publicly auditable on-chain.
 
 **Trust assumptions:**
-- **Oracle key security** — A compromised oracle key could call `release_payment` or `cancel_job` arbitrarily. Mitigation: a multisig-controlled key in production.
-- **AI model correctness** — Models can be wrong, hallucinate, or be manipulated. Mitigations: dual-model consensus and the human arbitration fallback.
-- **Artifact integrity** — Artifacts are ingested off-chain; the oracle must retrieve the correct artifact for each job. Tampering before it reaches the oracle is an attack surface.
+- **Oracle key security** — A compromised oracle key could arbitrarily release or cancel. Mitigation: multisig-controlled key in production.
+- **AI model correctness** — Models can be wrong or manipulated. Mitigations: dual-model consensus + human arbitration fallback.
+- **Artifact integrity** — Artifacts are ingested off-chain; tampering before reaching the oracle is an attack surface.
 
-Mappers does **not** solve identity verification — wallets are pseudonymous. Reputation and credential attestation are composable concerns layered on top (e.g., Civic, Dialect, on-chain attestation registries).
+Mappers does not solve identity verification. Wallets are pseudonymous. Reputation and credentials are composable concerns layered on top.
 
 ---
 
-See the [Glossary](Glossary.md) for definitions of every term used here, or [Getting Started](Getting-Started.md) to run the stack locally.
+See the [SDK Reference](SDK-Reference.md) for programmatic access, [API Reference](API-Reference.md) for the REST endpoints, or [Getting Started](Getting-Started.md) to run the full stack locally.

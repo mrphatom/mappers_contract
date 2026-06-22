@@ -271,13 +271,15 @@ Deliverable artifacts submitted by freelancers are sanitized before being includ
 
 ## 7. Frontend Interface
 
-The client-facing application is built on Next.js 14 App Router with TypeScript, Tailwind CSS, and the Solana Wallet Adapter. It provides:
+The client-facing application is built as a single-page application using Vite, React 19, TanStack Query, Tailwind CSS, and shadcn/ui. The API layer is consumed via auto-generated TanStack Query hooks (produced by orval from the OpenAPI spec). It provides:
 
-**Job Creation Dashboard** — Clients connect their wallet, fill in job details (description, acceptance criteria, freelancer wallet address, oracle address), specify an amount, and submit the `initialize_job` transaction. The interface handles transaction building, serialization, and submission via the connected wallet.
+**Job Overview Dashboard** — Displays all escrow jobs with real-time status badges, escrowed amounts in SOL, and filterable views by status or client address. The interface fetches data from the REST API server, which mirrors on-chain state in PostgreSQL for efficient querying.
 
-**Job Status Tracker** — Clients and freelancers can monitor job lifecycle state in real time by fetching the `GigEscrow` account on demand. Status transitions are reflected immediately post-confirmation.
+**Job Details** — Full metadata view including wallet addresses, exact lamport amounts, transaction signatures (linked to Solana Explorer), descriptions, and acceptance criteria.
 
-**Submission Interface** — Freelancers attach deliverable artifacts and trigger the oracle verification pipeline through a structured submission form.
+**Statistics** — Aggregate view showing total jobs, breakdown by status, total SOL in escrow, and oracle health status.
+
+**Submission Interface** — Freelancers attach deliverable artifacts and trigger the oracle verification pipeline. The submission is proxied through the API server to the oracle middleware.
 
 ---
 
@@ -371,13 +373,14 @@ Mappers does not solve identity verification. A freelancer's Solana wallet is ps
 |-------|-----------|
 | Smart Contracts | Rust, Anchor Framework 0.30 |
 | Runtime | Solana 1.18, SBF (Solana Bytecode Format) |
-| Frontend | Next.js 14 App Router, TypeScript, Tailwind CSS |
-| Wallet Integration | Solana Wallet Adapter |
-| Oracle Runtime | Node.js, gRPC |
+| API Server | Express 5, Drizzle ORM, PostgreSQL, Pino |
+| Frontend | Vite, React 19, TanStack Query, Tailwind CSS, shadcn/ui |
+| SDK | TypeScript, Zod, @mappers-protocol/sdk |
+| Oracle Runtime | Node.js, Helius gRPC (Yellowstone Geyser) |
 | RPC / Streaming | Helius (primary), QuickNode (failover) |
 | AI Orchestration | Manus AI Pro |
 | AI Verification | Google Gemini API, Anthropic Claude API |
-| Observability | Sentry (full-stack error tracking) |
+| Package Manager | pnpm (workspaces) |
 | Open Source License | MIT |
 
 ---

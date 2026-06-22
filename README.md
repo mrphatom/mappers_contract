@@ -1,111 +1,67 @@
 # Mappers Protocol
 
-> Autonomous, On-Chain Freelance Settlement Infrastructure — Powered by Cross-Validated AI Oracles on Solana.
+> Autonomous, on-chain freelance settlement infrastructure — powered by cross-validated AI oracles on Solana.
 
-Mappers is a decentralized freelance escrow protocol built natively on Solana using the Anchor framework. It eliminates counterparty risk and platform intermediaries by replacing slow, costly human arbitration with an automated dual-model AI consensus verification loop. When a freelancer delivers work, an AI oracle evaluates the output and triggers a cryptographic, programmatic payment release — no approvals, no platform fees, no counterparty risk.
+Mappers is a decentralized escrow protocol that replaces platform intermediaries with programmable trust. Client funds are locked in on-chain vaults and released automatically when an AI oracle consensus loop confirms the freelancer's deliverable meets acceptance criteria. No approvals, no platform fees, no counterparty risk.
 
 **Program ID (Devnet):** `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu`
 
 ---
 
-## Documentation
-
-Full protocol documentation lives in [`docs/wiki/`](./docs/wiki) as tracked, version-controlled Markdown derived from this README and the [whitepaper](./mappers_whitepaper.md):
-
-- [Overview](./docs/wiki/Home.md) — what Mappers is and the problems it solves
-- [Architecture](./docs/wiki/Architecture.md) — the three protocol layers, PDA design, state machine, and security model
-- [Getting Started](./docs/wiki/Getting-Started.md) — prerequisites, tests, oracle setup, and API reference
-- [Glossary](./docs/wiki/Glossary.md) — definitions of every term, account, role, state, and error code
-
-These pages follow GitHub Wiki naming conventions and can be pushed to the project's wiki repository — see [`docs/wiki/README.md`](./docs/wiki/README.md) for the export workflow.
-
----
-
-## Architecture Overview
-
-Mappers operates through three tightly coupled layers:
-
-**1 — On-Chain Escrow Engine (Anchor / Rust)**
-Tracks job lifecycle state and holds client funds inside dual Program Derived Address (PDA) vaults — one for metadata, one for lamports. All state transitions are irreversible and publicly auditable on-chain.
-
-**2 — Oracle Middleware (Node.js / TypeScript)**
-A persistent off-chain microservice that subscribes to live program events via Helius gRPC streaming. Detects `InitializeJob` events, tracks pending escrows, and bridges freelancer submission artifacts to the AI verification pipeline.
-
-**3 — Dual-Model AI Consensus Loop**
-Manus AI Pro acts as orchestrator, dispatching verification requests to the Gemini API and Anthropic Claude API in parallel with no knowledge sharing between models. Payment releases only when both models independently reach structured JSON consensus with confidence above defined thresholds. Divergent verdicts escalate to human arbitration.
+## How It Works
 
 ```
-Client (Next.js)
-      │ initialize_job
-      ▼
-On-Chain Escrow Engine (Anchor)
-  ├─ GigEscrow PDA  — job state
-  └─ Vault PDA      — locked SOL
-      │ Helius gRPC stream
-      ▼
+Client (Dashboard)
+      | initialize_job
+      v
+On-Chain Escrow Engine (Anchor / Rust)
+  |-- GigEscrow PDA  — job metadata + state
+  |-- Vault PDA      — locked SOL
+      | Helius gRPC stream
+      v
 Oracle Middleware (Node.js)
-      │ parallel verification
-      ▼
-Gemini API ──── Manus AI ──── Claude API
-                   │ consensus
-                   ▼
+      | parallel verification
+      v
+Gemini API ---- Manus AI ---- Claude API
+                   | consensus
+                   v
          release_payment / cancel_job
 ```
 
----
+1. A client deposits SOL into a vault PDA and registers the freelancer, oracle, and acceptance criteria.
+2. The oracle middleware detects the new job via Helius gRPC streaming.
+3. When the freelancer submits a deliverable, two AI models (Gemini and Claude) independently evaluate it.
+4. If both models agree the work meets criteria, funds are released to the freelancer on-chain. If both reject, funds are refunded. Disagreements escalate to human arbitration.
 
-## Smart Contract Security
-
-The escrow program incorporates production-grade security measures validated through a full internal security audit:
-
-**Dual Bump Storage** — Both the `GigEscrow` PDA bump (`escrow_bump`) and the Vault PDA bump (`vault_bump`) are stored separately on-chain at initialization. This prevents the critical runtime failure caused by using the wrong bump when signing vault transfer CPIs — a bug that would silently cause every payout to revert.
-
-**Reentrancy Mitigation** — All escrow state fields are cached as stack variables before any mutable borrow or CPI executes. This closes cross-program invocation attack vectors that attempt to re-read modified state mid-execution.
-
-**Rent Reclamation** — Both `release_payment` and `cancel_job` carry Anchor's `close = client` constraint. The instant a job resolves, the escrow account is deallocated and 100% of rent-exempt lamports return to the client automatically. Zero lamports are permanently locked post-resolution.
-
-**Rent-Exempt Floor Guard** — `initialize_job` enforces `amount >= Rent::get()?.minimum_balance(0)` (~890,880 lamports). Deposits below this threshold would leave the vault susceptible to garbage collection by the runtime before the freelancer can claim.
-
-**Pinned Bump Constraints** — All `bump = escrow_account.escrow_bump` and `bump = escrow_account.vault_bump` constraints are pinned at the account validation layer. This eliminates two `find_program_address` calls per resolution instruction, saving ~50,000 compute units per transaction.
-
-**Space Allocation**
-```
-GigEscrow::MAXIMUM_SPACE = 151 bytes
-8  (discriminator) + 32 (client) + 32 (freelancer) + 32 (oracle)
-+ 8 (amount) + 4 (string prefix) + 32 (job_id) + 1 (status)
-+ 1 (escrow_bump) + 1 (vault_bump)
-```
+The entire settlement takes seconds for straightforward deliveries.
 
 ---
 
 ## Repository Structure
 
+This is a **pnpm workspace monorepo** organized into three top-level concerns:
+
 ```
 mappers_contract/
-├── programs/
-│   └── project_mappers/
-│       └── src/
-│           └── lib.rs          # Core escrow logic, PDA architecture, security gates
-├── tests/
-│   └── project_mappers.ts      # Anchor integration test suite (devnet + localnet)
-├── oracle/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── .env.example
-│   ├── idl.json                # Copy of compiled IDL for oracle runtime
-│   └── src/
-│       ├── index.ts            # Entry point — boots gRPC listener + HTTP server
-│       ├── listener.ts         # Helius gRPC subscription, account decoder, job tracking
-│       ├── verification.ts     # Gemini + Claude parallel verification, consensus engine
-│       ├── chain.ts            # On-chain transaction builder and signer
-│       ├── store.ts            # In-memory pending job registry
-│       ├── config.ts           # Environment variable loader and validator
-│       └── types.ts            # Shared TypeScript interfaces
-├── Anchor.toml
-├── Cargo.toml
-├── package.json                # Root — test runner dependencies (ts-mocha, chai)
-├── tsconfig.json               # Root — TypeScript config for test suite
-└── idl.json                    # Compiled program IDL (8 instructions, 8 error codes)
+|
+|-- programs/project_mappers/     Anchor smart contract (Rust)
+|-- oracle/                       Off-chain AI verification service
+|
+|-- apps/
+|   |-- api-server/               Express 5 REST API (Drizzle ORM + PostgreSQL)
+|   |-- dashboard/                Vite + React 19 frontend (TanStack Query)
+|
+|-- lib/
+|   |-- sdk/                      @mappers-protocol/sdk — OracleClient, types
+|   |-- db/                       @workspace/db — Drizzle schema + migrations
+|   |-- api-zod/                  @workspace/api-zod — shared Zod request/response schemas
+|   |-- api-spec/                 @workspace/api-spec — OpenAPI spec generation
+|   |-- api-client-react/         @workspace/api-client-react — typed React hooks
+|
+|-- tests/                        Anchor integration tests (ts-mocha)
+|-- scripts/                      E2E devnet integration scripts
+|-- docs/wiki/                    Version-controlled wiki pages
+|-- mappers_whitepaper.md         Full protocol whitepaper
 ```
 
 ---
@@ -116,29 +72,93 @@ mappers_contract/
 |---|---|
 | Smart Contracts | Rust, Anchor Framework 0.30 |
 | Solana Runtime | SBF, Solana CLI 1.18 |
-| Frontend | Next.js 14 App Router, TypeScript, Tailwind CSS |
-| Wallet | Solana Wallet Adapter |
-| Oracle Runtime | Node.js, TypeScript |
-| RPC / Streaming | Helius (primary gRPC), QuickNode (failover) |
+| API Server | Express 5, Drizzle ORM, PostgreSQL, Pino |
+| Frontend | Vite, React 19, TanStack Query, Tailwind CSS, shadcn/ui |
+| SDK | TypeScript, Zod |
+| Oracle Runtime | Node.js, Helius gRPC (Yellowstone Geyser) |
 | AI Orchestration | Manus AI Pro |
 | AI Verification | Google Gemini API, Anthropic Claude API |
-| Observability | Sentry |
+| Package Manager | pnpm (workspaces) |
 | License | MIT |
 
 ---
 
-## Program Interface
+## Getting Started
 
-### Instructions
+### Prerequisites
 
-**`initialize_job(job_id: String, amount: u64)`**
-Client deposits SOL into a vault PDA and registers freelancer + oracle addresses. Enforces rent-exempt floor on deposit amount.
+- [Rust](https://rustup.rs/) + `solana-cli` 1.18
+- [Anchor CLI](https://www.anchor-lang.com/docs/installation) 0.30
+- Node.js 18+
+- [pnpm](https://pnpm.io/) 9+
 
-**`release_payment()`**
-Callable by the client (manual approval) or the oracle (autonomous approval). Transfers vault balance to freelancer and closes the escrow account, returning rent to client.
+### Install Dependencies
 
-**`cancel_job()`**
-Callable exclusively by the oracle. Refunds vault balance to client and closes the escrow account.
+```bash
+pnpm install
+```
+
+### Build the Workspace
+
+```bash
+# Type-check and build all packages
+pnpm run build
+```
+
+### Run Tests (Anchor)
+
+```bash
+# Full integration test suite against localnet
+pnpm run test:anchor
+# or
+anchor test
+```
+
+### Start the API Server (Development)
+
+```bash
+cd apps/api-server
+pnpm run dev
+```
+
+### Start the Dashboard (Development)
+
+```bash
+cd apps/dashboard
+pnpm run dev
+```
+
+### Oracle Setup
+
+```bash
+cd oracle
+npm install
+cp .env.example .env
+# Configure: SOLANA_RPC_URL, PROGRAM_ID, ORACLE_PRIVATE_KEY,
+#            HELIUS_GRPC_ENDPOINT, GEMINI_API_KEY, ANTHROPIC_API_KEY
+npm run dev
+```
+
+---
+
+## Smart Contract
+
+The escrow program manages job lifecycle through three instructions:
+
+| Instruction | Caller | Effect |
+|---|---|---|
+| `initialize_job(job_id, amount)` | Client | Deposits SOL into a vault PDA. Enforces rent-exempt floor. |
+| `release_payment()` | Client or Oracle | Pays the freelancer and closes the escrow. |
+| `cancel_job()` | Oracle only | Refunds the client and closes the escrow. |
+
+### Security
+
+- **Dual PDA architecture** — separate state and vault accounts per job
+- **Pinned bumps** — stored at initialization, saving ~50,000 CU per resolution
+- **Reentrancy mitigation** — state cached to stack before any CPI
+- **Rent reclamation** — 100% of rent returned to client on close
+- **Rent-exempt floor guard** — deposits below ~890,880 lamports are rejected
+- **Signer forgery prevention** — `has_one` constraints enforced at the account validation layer
 
 ### Error Codes
 
@@ -149,70 +169,63 @@ Callable exclusively by the oracle. Refunds vault balance to client and closes t
 | 6002 | `AmountBelowRentExemption` | Below ~890,880 lamports |
 | 6003 | `JobNotPending` | Job already resolved |
 | 6004 | `UnauthorizedExecution` | Caller is not client or oracle |
-| 6005 | `InvalidFreelancerTarget` | Passed freelancer ≠ stored freelancer |
+| 6005 | `InvalidFreelancerTarget` | Passed freelancer != stored freelancer |
 | 6006 | `InvalidOracleAuthority` | Caller is not stored oracle |
-| 6007 | `InvalidClientAuthority` | Passed client ≠ stored client |
+| 6007 | `InvalidClientAuthority` | Passed client != stored client |
 
 ---
 
-## Getting Started
+## Oracle Consensus
 
-### Prerequisites
-
-- [Rust](https://rustup.rs/) + `solana-cli` 1.18
-- [Anchor CLI](https://www.anchor-lang.com/docs/installation) 0.30
-- Node.js 18+ and Yarn
-
-### Run Tests
-
-```bash
-# Install root dependencies
-yarn install
-
-# Run the full integration test suite against localnet
-anchor test
-```
-
-### Oracle Setup
-
-```bash
-cd oracle
-npm install
-cp .env.example .env
-# Fill in SOLANA_RPC_URL, PROGRAM_ID, ORACLE_PRIVATE_KEY,
-# HELIUS_GRPC_ENDPOINT, GEMINI_API_KEY, ANTHROPIC_API_KEY
-npm run dev
-```
-
-The oracle exposes two endpoints:
-
-```
-GET  /health          — liveness check + pending job count
-GET  /jobs/:jobId     — fetch tracked job state
-POST /submit          — trigger AI verification for a submitted deliverable
-```
-
-**POST /submit payload:**
-```json
-{
-  "jobId": "your-job-id",
-  "description": "Original job brief",
-  "acceptanceCriteria": ["criterion 1", "criterion 2"],
-  "deliverable": "https://link-to-work or text content",
-  "deliverableType": "url | text | json | ipfs"
-}
-```
-
----
-
-## Oracle Consensus Logic
+The AI verification pipeline uses two independent models to prevent single-point-of-failure manipulation:
 
 | Gemini | Claude | Outcome |
 |---|---|---|
-| APPROVED (≥0.80) | APPROVED (≥0.80) | `release_payment` → freelancer |
-| REJECTED (≥0.75) | REJECTED (≥0.75) | `cancel_job` → refund client |
-| Divergent | — | Escalate to human arbitration |
-| Sub-threshold | — | Escalate to human arbitration |
+| APPROVED (>= 0.80) | APPROVED (>= 0.80) | `release_payment` — freelancer paid |
+| REJECTED (>= 0.75) | REJECTED (>= 0.75) | `cancel_job` — client refunded |
+| Divergent | -- | Escalate to human arbitration |
+| Sub-threshold | -- | Escalate to human arbitration |
+
+---
+
+## API Server
+
+The REST API (`apps/api-server`) exposes job management endpoints:
+
+```
+GET    /api/jobs              List jobs (filterable by status, clientPubkey)
+POST   /api/jobs              Register a new job
+GET    /api/jobs/:jobId       Get job details
+PATCH  /api/jobs/:jobId       Update job status/metadata
+POST   /api/jobs/:jobId/submit   Submit deliverable (triggers oracle verification)
+GET    /api/stats             Aggregate job statistics
+GET    /api/oracle/health     Oracle liveness proxy
+GET    /api/health            API server health check
+```
+
+---
+
+## Dashboard
+
+The frontend (`apps/dashboard`) is a React single-page application providing:
+
+- **Job overview** — real-time list of all escrow jobs with status badges
+- **Job details** — full metadata, transaction signatures, and state history
+- **Statistics** — aggregate counts and total escrowed SOL
+- **Oracle health** — live connectivity status of the AI verification service
+
+---
+
+## Documentation
+
+Detailed protocol documentation lives in [`docs/wiki/`](./docs/wiki):
+
+- [Overview](./docs/wiki/Home.md) — what Mappers is and the problems it solves
+- [Architecture](./docs/wiki/Architecture.md) — the three protocol layers, PDA design, state machine, and security model
+- [Getting Started](./docs/wiki/Getting-Started.md) — prerequisites, running the full stack, and API reference
+- [Glossary](./docs/wiki/Glossary.md) — definitions of every protocol term, account, role, and error code
+
+The [whitepaper](./mappers_whitepaper.md) covers the full protocol design, economic model, and security analysis.
 
 ---
 
@@ -220,7 +233,7 @@ POST /submit          — trigger AI verification for a submitted deliverable
 
 | Network | Program ID | Status |
 |---|---|---|
-| Devnet | `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu` | ✅ Live |
+| Devnet | `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu` | Live |
 | Mainnet-Beta | TBD | Pending |
 
 ---
@@ -228,13 +241,34 @@ POST /submit          — trigger AI verification for a submitted deliverable
 ## Roadmap
 
 - [x] Production-grade escrow contract with dual PDA architecture
-- [x] Full security audit — critical bump bug resolved, rent lock prevention, compute optimizations
+- [x] Security audit — critical bump bug resolved, rent-lock prevention, compute optimizations
 - [x] Devnet deployment
 - [x] Oracle middleware — Helius gRPC listener, Gemini + Claude consensus pipeline
-- [ ] Integration test suite
-- [ ] Next.js frontend — job creation dashboard, status tracker, submission interface
-- [ ] TypeScript SDK — `@mappers-protocol/sdk`
+- [x] TypeScript SDK (`@mappers-protocol/sdk`)
+- [x] REST API server (Express 5 + Drizzle ORM)
+- [x] React dashboard (Vite + TanStack Query)
+- [x] Shared workspace libraries (db, api-zod, api-spec, api-client-react)
+- [ ] End-to-end integration test suite
 - [ ] Mainnet-Beta launch
+
+---
+
+## Contributing
+
+```bash
+# Clone and install
+git clone https://github.com/mrphatom/mappers_contract.git
+cd mappers_contract
+pnpm install
+
+# Type-check everything
+pnpm run build
+
+# Run anchor tests
+pnpm run test:anchor
+```
+
+This project uses pnpm workspaces. All shared types flow through the `lib/` packages. The API server and dashboard consume them as workspace dependencies (`workspace:*`).
 
 ---
 

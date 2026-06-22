@@ -1,28 +1,29 @@
 # Mappers Protocol Documentation (`docs/wiki/`)
 
-This directory is the **tracked, version-controlled source of truth** for the Mappers Protocol wiki. The content is derived from and kept aligned with the repository's [`README.md`](../../README.md) and [`mappers_whitepaper.md`](../../mappers_whitepaper.md).
-
-Keeping the wiki here (instead of relying solely on the GitHub Wiki UI) means the documentation is reviewed via pull requests, versioned alongside the code, and never silently drifts from the protocol it describes.
+This directory is the **tracked, version-controlled source of truth** for the Mappers Protocol wiki. The content is kept aligned with the codebase, reviewed via pull requests, and versioned alongside the code.
 
 ## Pages
 
 | File | Purpose |
 |---|---|
-| [`Home.md`](Home.md) | Overview — what Mappers is and the problems it solves |
-| [`Architecture.md`](Architecture.md) | The three protocol layers, PDA design, state machine, security model |
-| [`Getting-Started.md`](Getting-Started.md) | Prerequisites, tests, oracle setup, API reference |
-| [`Glossary.md`](Glossary.md) | Definitions of every term, account, role, state, and error code |
-| `_Sidebar.md` | Navigation sidebar (rendered by the GitHub Wiki) |
-| `_Footer.md` | Footer (rendered by the GitHub Wiki) |
+| [`Home.md`](Home.md) | Overview — what Mappers is, why it exists, current state |
+| [`Architecture.md`](Architecture.md) | System design — all five layers, PDA architecture, security model |
+| [`Getting-Started.md`](Getting-Started.md) | Full setup guide — prerequisites, running every service |
+| [`SDK-Reference.md`](SDK-Reference.md) | SDK documentation — MappersClient, OracleClient, types |
+| [`API-Reference.md`](API-Reference.md) | REST API documentation — all endpoints, request/response shapes |
+| [`Dashboard.md`](Dashboard.md) | Frontend guide — features, architecture, development tips |
+| [`Development-Guide.md`](Development-Guide.md) | Contributing — workspace workflow, code generation, conventions |
+| [`Glossary.md`](Glossary.md) | Definitions — every term, account, role, state, and error code |
+| `_Sidebar.md` | Navigation sidebar (rendered by GitHub Wiki) |
+| `_Footer.md` | Footer (rendered by GitHub Wiki) |
 
-## Wiki-Exportable Structure
+## Publishing to GitHub Wiki
 
-The filenames in this directory follow GitHub Wiki conventions (`Home.md` is the wiki landing page; `_Sidebar.md` / `_Footer.md` are special wiki files; page names use hyphens). This makes the directory directly pushable to the project's separate wiki repository.
+The filenames follow GitHub Wiki conventions (`Home.md` is the landing page; `_Sidebar.md` / `_Footer.md` are special files; page names use hyphens). This makes the directory directly pushable to the project's wiki repository.
 
-To publish these pages to the GitHub Wiki (the wiki must be initialized once via the repo's **Wiki** tab):
+To publish (the wiki must be initialized once via the repo's **Wiki** tab):
 
 ```bash
-# From the repository root
 git clone https://github.com/mrphatom/mappers_contract.wiki.git
 cp docs/wiki/*.md mappers_contract.wiki/
 cd mappers_contract.wiki
@@ -31,4 +32,4 @@ git commit -m "Sync wiki from docs/wiki/"
 git push
 ```
 
-> Within the GitHub Wiki, page links resolve by page name (e.g. `[Architecture](Architecture)`); the `.md` links used in these files also resolve correctly both in the normal repository file browser and in the wiki. Update the pages here in `docs/wiki/` first, then re-run the sync above so the wiki stays the downstream copy.
+Update pages here in `docs/wiki/` first, then re-run the sync so the wiki stays the downstream copy.
