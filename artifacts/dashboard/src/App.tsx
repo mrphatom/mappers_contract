@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Activity, LayoutDashboard, List, PlusCircle, X, Menu } from "lucide-react";
+import { SolanaWalletProvider } from "@/components/wallet-provider";
+import { WalletButton } from "@/components/wallet-button";
 import NotFound from "@/pages/not-found";
 
 import Dashboard from "./pages/dashboard";
@@ -19,10 +21,10 @@ const queryClient = new QueryClient({
 });
 
 const NAV = [
-  { href: "/",        label: "Dashboard", icon: LayoutDashboard },
-  { href: "/jobs",    label: "All Jobs",  icon: List },
-  { href: "/jobs/new",label: "Create",    icon: PlusCircle },
-  { href: "/oracle",  label: "Oracle",    icon: Activity },
+  { href: "/",         label: "Dashboard", icon: LayoutDashboard },
+  { href: "/jobs",     label: "All Jobs",  icon: List },
+  { href: "/jobs/new", label: "Create",    icon: PlusCircle },
+  { href: "/oracle",   label: "Oracle",    icon: Activity },
 ];
 
 function Logo() {
@@ -64,8 +66,9 @@ function DesktopSidebar({ location }: { location: string }) {
           );
         })}
       </nav>
-      <div className="px-4 py-4 border-t border-border">
-        <div className="text-[10px] font-mono text-muted-foreground leading-relaxed">
+      <div className="px-3 py-3 border-t border-border space-y-3">
+        <WalletButton />
+        <div className="text-[10px] font-mono text-muted-foreground leading-relaxed px-1">
           <div className="text-primary/80">DEVNET</div>
           <div className="truncate">52yt1g...KX2Mu</div>
         </div>
@@ -76,15 +79,18 @@ function DesktopSidebar({ location }: { location: string }) {
 
 function MobileHeader({ onMenu }: { onMenu: () => void }) {
   return (
-    <header className="md:hidden flex items-center justify-between h-14 px-4 border-b border-border bg-sidebar shrink-0">
+    <header className="md:hidden flex items-center justify-between h-14 px-4 border-b border-border bg-sidebar shrink-0 gap-2">
       <Logo />
-      <button
-        onClick={onMenu}
-        className="w-10 h-10 flex items-center justify-center text-muted-foreground hover:text-foreground active:bg-accent/50 transition-colors"
-        aria-label="Open menu"
-      >
-        <Menu className="w-5 h-5" />
-      </button>
+      <div className="flex items-center gap-2">
+        <WalletButton compact />
+        <button
+          onClick={onMenu}
+          className="w-10 h-10 flex items-center justify-center text-muted-foreground hover:text-foreground active:bg-accent/50 transition-colors"
+          aria-label="Open menu"
+        >
+          <Menu className="w-5 h-5" />
+        </button>
+      </div>
     </header>
   );
 }
@@ -101,12 +107,10 @@ function MobileDrawer({
   if (!open) return null;
   return (
     <div className="md:hidden fixed inset-0 z-50 flex">
-      {/* Backdrop */}
       <div
         className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
-      {/* Drawer */}
       <div className="relative w-72 max-w-[85vw] bg-sidebar border-r border-border flex flex-col shadow-2xl animate-in slide-in-from-left-4 duration-200">
         <div className="h-14 flex items-center justify-between px-5 border-b border-border">
           <Logo />
@@ -137,7 +141,8 @@ function MobileDrawer({
             );
           })}
         </nav>
-        <div className="px-5 py-4 border-t border-border">
+        <div className="px-4 py-4 border-t border-border space-y-3">
+          <WalletButton />
           <div className="text-[10px] font-mono text-muted-foreground space-y-0.5">
             <div className="text-primary/80 font-medium">SOLANA DEVNET</div>
             <div className="break-all text-[9px] leading-relaxed opacity-70">
@@ -215,13 +220,15 @@ function Router() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <SolanaWalletProvider>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </SolanaWalletProvider>
   );
 }

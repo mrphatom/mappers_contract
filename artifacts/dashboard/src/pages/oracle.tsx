@@ -62,7 +62,7 @@ export default function Oracle() {
     refetch,
     isFetching,
   } = useGetOracleHealth({
-    query: { refetchInterval: 15_000 },
+    query: { refetchInterval: 15_000, queryKey: ["oracle-health"] },
   });
   const { data: stats } = useGetStats();
 

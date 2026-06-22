@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 const rawPort = process.env.PORT;
 
@@ -29,6 +30,10 @@ if (!basePath) {
 export default defineConfig({
   base: basePath,
   plugins: [
+    nodePolyfills({
+      globals: { Buffer: true, global: true, process: true },
+      protocolImports: true,
+    }),
     react(),
     tailwindcss(),
     runtimeErrorOverlay(),
@@ -50,8 +55,20 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      "vite-plugin-node-polyfills/shims/buffer": path.resolve(
+        import.meta.dirname,
+        "node_modules/vite-plugin-node-polyfills/shims/buffer"
+      ),
+      "vite-plugin-node-polyfills/shims/global": path.resolve(
+        import.meta.dirname,
+        "node_modules/vite-plugin-node-polyfills/shims/global"
+      ),
+      "vite-plugin-node-polyfills/shims/process": path.resolve(
+        import.meta.dirname,
+        "node_modules/vite-plugin-node-polyfills/shims/process"
+      ),
     },
-    dedupe: ["react", "react-dom"],
+    dedupe: ["react", "react-dom", "@solana/web3.js", "@coral-xyz/anchor"],
   },
   root: path.resolve(import.meta.dirname),
   build: {

@@ -13,12 +13,12 @@
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@mappers-protocol/sdk": ["../../lib/sdk/src/index.ts"]
     }
   },
   "references": [
-    {
-      "path": "../../lib/api-client-react"
-    }
+    { "path": "../../lib/api-client-react" },
+    { "path": "../../lib/sdk" }
   ]
 }

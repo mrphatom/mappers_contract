@@ -77,7 +77,7 @@ export default function JobDetail() {
   const qc = useQueryClient();
 
   const { data: job, isLoading, error } = useGetJob(jobId ?? "", {
-    query: { enabled: !!jobId },
+    query: { enabled: !!jobId, queryKey: ["job", jobId] },
   });
 
   const submitDeliverable = useSubmitDeliverable();
