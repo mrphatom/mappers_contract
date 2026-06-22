@@ -1,14 +1,35 @@
 # Getting Started
 
-This page covers prerequisites, running the test suite, configuring the oracle middleware, and the oracle HTTP API. It is derived from the root [`README.md`](../../README.md) and the [whitepaper](../../mappers_whitepaper.md).
+This page covers everything you need to run the Mappers Protocol stack locally: prerequisites, workspace setup, starting each service, and running tests.
 
 ---
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs/) + `solana-cli` 1.18
-- [Anchor CLI](https://www.anchor-lang.com/docs/installation) 0.30
-- Node.js 18+ and Yarn
+| Tool | Version | Purpose |
+|---|---|---|
+| [Rust](https://rustup.rs/) | stable | Smart contract compilation |
+| [Solana CLI](https://docs.solanalabs.com/cli/install) | 1.18+ | Cluster management, keypair generation |
+| [Anchor CLI](https://www.anchor-lang.com/docs/installation) | 0.30 | Program build and test framework |
+| [Node.js](https://nodejs.org/) | 18+ | Oracle, API server, dashboard |
+| [pnpm](https://pnpm.io/) | 9+ | Workspace package manager |
+| [PostgreSQL](https://www.postgresql.org/) | 14+ | API server database |
+
+---
+
+## Quick Start
+
+```bash
+# Clone the repository
+git clone https://github.com/mrphatom/mappers_contract.git
+cd mappers_contract
+
+# Install all workspace dependencies
+pnpm install
+
+# Type-check and build all packages
+pnpm run build
+```
 
 ---
 
@@ -16,114 +37,184 @@ This page covers prerequisites, running the test suite, configuring the oracle m
 
 ```
 mappers_contract/
-├── programs/
-│   └── project_mappers/
-│       └── src/
-│           └── lib.rs          # Core escrow logic, PDA architecture, security gates
-├── tests/
-│   └── project_mappers.ts      # Anchor integration test suite (devnet + localnet)
-├── oracle/
-│   ├── package.json
-│   ├── tsconfig.json
-│   ├── .env.example
-│   ├── idl.json                # Copy of compiled IDL for oracle runtime
-│   └── src/
-│       ├── index.ts            # Entry point — boots gRPC listener + HTTP server
-│       ├── listener.ts         # Helius gRPC subscription, account decoder, job tracking
-│       ├── verification.ts     # Gemini + Claude parallel verification, consensus engine
-│       ├── chain.ts            # On-chain transaction builder and signer
-│       ├── store.ts            # In-memory pending job registry
-│       ├── config.ts           # Environment variable loader and validator
-│       └── types.ts            # Shared TypeScript interfaces
-├── docs/
-│   └── wiki/                   # Tracked, wiki-exportable Markdown documentation
-├── Anchor.toml
-├── Cargo.toml
-├── package.json                # Root — test runner dependencies (ts-mocha, chai)
-├── tsconfig.json               # Root — TypeScript config for test suite
-└── idl.json                    # Compiled program IDL (8 instructions, 8 error codes)
+|-- programs/project_mappers/     Anchor smart contract (Rust)
+|-- oracle/                       Off-chain AI oracle service
+|-- apps/
+|   |-- api-server/               Express 5 REST API
+|   |-- dashboard/                React frontend
+|-- lib/
+|   |-- sdk/                      @mappers-protocol/sdk
+|   |-- db/                       Drizzle schema + migrations
+|   |-- api-zod/                  Shared Zod validation schemas
+|   |-- api-spec/                 OpenAPI spec + code generation
+|   |-- api-client-react/         Generated TanStack Query hooks
+|-- tests/                        Anchor integration tests
+|-- scripts/                      E2E devnet scripts
+|-- docs/wiki/                    This documentation
 ```
 
 ---
 
-## Install & Build
-
-Using the provided `Makefile`:
+## Running the Smart Contract Tests
 
 ```bash
-# Install root + oracle dependencies
-make setup
+# Run Anchor test suite against localnet
+pnpm run test:anchor
 
-# Build the Anchor program
-make build
-```
-
-Or manually:
-
-```bash
-yarn install
-anchor build
-```
-
----
-
-## Run Tests
-
-```bash
-# Install root dependencies
-yarn install
-
-# Run the full integration test suite against localnet
+# Or use Anchor directly
 anchor test
+
+# Run against devnet
+anchor test --provider.cluster devnet
 ```
 
-Equivalent `Makefile` targets:
+The test suite exercises the full job lifecycle: initialization, payment release, and cancellation, including error cases.
+
+---
+
+## Running the API Server
+
+The API server requires a PostgreSQL database.
+
+### 1. Set up PostgreSQL
+
+Create a database and set the connection string:
 
 ```bash
-make test          # anchor test --provider.cluster localnet
-make test-devnet   # anchor test --provider.cluster devnet
+createdb mappers_dev
+export DATABASE_URL="postgresql://localhost:5432/mappers_dev"
+```
+
+### 2. Push the database schema
+
+```bash
+cd lib/db
+pnpm run push
+```
+
+This uses Drizzle Kit to push the schema to your database (creates the `jobs` table with the correct columns and enums).
+
+### 3. Start the server
+
+```bash
+cd apps/api-server
+pnpm run dev
+```
+
+The server starts on port 3000 (configurable via `PORT` env var). You should see structured JSON logs from Pino indicating the server is listening.
+
+---
+
+## Running the Dashboard
+
+```bash
+cd apps/dashboard
+pnpm run dev
+```
+
+The dashboard starts on `http://localhost:5173` by default. It expects the API server to be running at `http://localhost:3000` (or wherever you configure it).
+
+### Build for production
+
+```bash
+cd apps/dashboard
+pnpm run build
+pnpm run serve   # Preview the production build
 ```
 
 ---
 
-## Oracle Setup
+## Running the Oracle
+
+The oracle is a standalone Node.js service in the `oracle/` directory (not part of the pnpm workspace).
 
 ```bash
 cd oracle
 npm install
 cp .env.example .env
-# Fill in SOLANA_RPC_URL, PROGRAM_ID, ORACLE_PRIVATE_KEY,
-# HELIUS_GRPC_ENDPOINT, GEMINI_API_KEY, ANTHROPIC_API_KEY
+```
+
+Fill in the required environment variables:
+
+| Variable | Description |
+|---|---|
+| `SOLANA_RPC_URL` | Solana RPC endpoint (Helius recommended) |
+| `PROGRAM_ID` | Mappers program ID (`52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu`) |
+| `ORACLE_PRIVATE_KEY` | Base58-encoded oracle keypair |
+| `HELIUS_GRPC_ENDPOINT` | Helius gRPC streaming URL |
+| `GEMINI_API_KEY` | Google Gemini API key |
+| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+
+Then start:
+
+```bash
 npm run dev
 ```
 
-Or via the `Makefile`: `make oracle-dev`.
-
-> **Never commit secrets.** `.env`, keypair files (`*-keypair.json`, `wallet.json`), and similar are git-ignored. Only `.env.example` should be tracked.
+The oracle exposes an HTTP API on port 3001 (configurable).
 
 ---
 
-## Oracle HTTP API
+## Environment Variables Summary
 
-The oracle exposes three endpoints:
+### API Server (`apps/api-server/`)
 
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `3000` | Server listen port |
+| `DATABASE_URL` | — | PostgreSQL connection string |
+| `ORACLE_URL` | `http://localhost:3001` | Oracle middleware URL |
+| `NODE_ENV` | `development` | Environment mode |
+
+### Dashboard (`apps/dashboard/`)
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `5173` | Vite dev server port |
+| `BASE_PATH` | `/` | Base path for deployment |
+
+### Oracle (`oracle/`)
+
+| Variable | Description |
+|---|---|
+| `SOLANA_RPC_URL` | Solana RPC endpoint |
+| `PROGRAM_ID` | On-chain program address |
+| `ORACLE_PRIVATE_KEY` | Oracle authority keypair |
+| `HELIUS_GRPC_ENDPOINT` | gRPC streaming endpoint |
+| `GEMINI_API_KEY` | Gemini API credentials |
+| `ANTHROPIC_API_KEY` | Claude API credentials |
+
+---
+
+## Workspace Commands
+
+Run these from the repository root:
+
+| Command | Description |
+|---|---|
+| `pnpm install` | Install all workspace dependencies |
+| `pnpm run build` | Type-check libs, then build all packages |
+| `pnpm run typecheck` | Type-check all packages without building |
+| `pnpm run typecheck:libs` | Type-check only lib/ packages (fast) |
+| `pnpm run test:anchor` | Run Anchor integration tests |
+
+---
+
+## Code Generation
+
+The API contract is defined in `lib/api-spec/` as an OpenAPI specification. From it, [orval](https://orval.dev/) generates:
+
+- **`lib/api-zod/`** — Zod validation schemas used by the API server
+- **`lib/api-client-react/`** — TanStack Query hooks used by the dashboard
+
+To regenerate after changing the spec:
+
+```bash
+cd lib/api-spec
+pnpm run codegen
 ```
-GET  /health          — liveness check + pending job count
-GET  /jobs/:jobId     — fetch tracked job state
-POST /submit          — trigger AI verification for a submitted deliverable
-```
 
-### `POST /submit` payload
-
-```json
-{
-  "jobId": "your-job-id",
-  "description": "Original job brief",
-  "acceptanceCriteria": ["criterion 1", "criterion 2"],
-  "deliverable": "https://link-to-work or text content",
-  "deliverableType": "url | text | json | ipfs"
-}
-```
+This regenerates both downstream packages and runs a type-check to verify everything is consistent.
 
 ---
 
@@ -132,11 +223,14 @@ POST /submit          — trigger AI verification for a submitted deliverable
 Run the oracle in one terminal, then execute the integration script:
 
 ```bash
-make oracle-dev          # terminal 1
-make e2e                 # terminal 2 — ts-node scripts/e2e-devnet.ts
+# Terminal 1 — start the oracle
+cd oracle && npm run dev
+
+# Terminal 2 — run the E2E script
+npx ts-node scripts/e2e-devnet.ts
 ```
 
-This exercises the full flow: job creation → AI verification → on-chain settlement.
+This exercises the full flow: job creation on-chain, oracle detection, AI verification, and on-chain settlement.
 
 ---
 
@@ -149,40 +243,16 @@ This exercises the full flow: job creation → AI verification → on-chain sett
 
 ---
 
-## Program Interface Quick Reference
+## Troubleshooting
 
-**Instructions**
+**pnpm install fails** — Make sure you're using pnpm (not npm or yarn). The workspace enforces this via a `preinstall` script.
 
-- `initialize_job(job_id: String, amount: u64)` — Client deposits SOL into a vault PDA and registers freelancer + oracle addresses. Enforces the rent-exempt floor on the deposit amount.
-- `release_payment()` — Callable by the client (manual approval) or the oracle (autonomous approval). Transfers the vault balance to the freelancer and closes the escrow account, returning rent to the client.
-- `cancel_job()` — Callable exclusively by the oracle. Refunds the vault balance to the client and closes the escrow account.
+**Type-check errors in lib packages** — Run `pnpm run typecheck:libs` first. The lib packages use TypeScript composite project references and must be built in dependency order.
 
-**Error Codes** — see the [Glossary](Glossary.md#error-codes) for the full table.
+**Database connection refused** — Ensure PostgreSQL is running and `DATABASE_URL` is set correctly.
+
+**Oracle not detecting jobs** — Verify `HELIUS_GRPC_ENDPOINT` is valid and the `PROGRAM_ID` matches your deployment.
 
 ---
 
-## SDK Vision (Planned)
-
-The escrow engine and oracle middleware are being open-sourced as a composable SDK:
-
-```typescript
-import { MappersEscrow, MappersOracle } from "@mappers-protocol/sdk";
-
-// Initialize a job from any Solana application
-const escrow = new MappersEscrow(connection, wallet);
-await escrow.initializeJob({
-  jobId: "uuid-here",
-  freelancer: freelancerPublicKey,
-  oracle: oraclePublicKey,
-  amount: lamports,
-});
-
-// Configure oracle with custom verification logic
-const oracle = new MappersOracle({
-  programId: MAPPERS_PROGRAM_ID,
-  verificationFn: async (artifact) => myCustomVerifier(artifact),
-});
-await oracle.start();
-```
-
-See [SDK & Public Infrastructure Vision](../../mappers_whitepaper.md#8-sdk--public-infrastructure-vision) in the whitepaper for details.
+See the [API Reference](API-Reference.md) for endpoint details, [SDK Reference](SDK-Reference.md) for programmatic usage, or the [Architecture](Architecture.md) page for how the pieces fit together.
