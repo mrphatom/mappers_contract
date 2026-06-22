@@ -1,5 +1,8 @@
 import * as Sentry from "@sentry/node";
 import express, { Request, Response, NextFunction } from "express";
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { config } from "./config";
 import { store } from "./store";
 import { startListener } from "./listener";
@@ -26,7 +29,46 @@ if (config.sentry.enabled) {
 // ─── EXPRESS APP ─────────────────────────────────────────────────────────────
 
 const app = express();
-app.use(express.json());
+
+// ─── SECURITY MIDDLEWARE ──────────────────────────────────────────────────────
+
+app.use(helmet());
+
+const corsOptions: cors.CorsOptions = {
+  origin: config.server.corsOrigins
+    ? config.server.corsOrigins.split(",").map((o) => o.trim())
+    : false,
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
+};
+app.use(cors(corsOptions));
+
+app.use(express.json({ limit: "100kb" }));
+
+const limiter = rateLimit({
+  windowMs: config.server.rateLimitWindowMs,
+  max:      config.server.rateLimitMax,
+  standardHeaders: true,
+  legacyHeaders:   false,
+  message: { error: "Too many requests. Please try again later." },
+});
+app.use(limiter);
+
+// ─── API KEY AUTH MIDDLEWARE ──────────────────────────────────────────────────
+
+function requireApiKey(req: Request, res: Response, next: NextFunction): void {
+  if (!config.server.apiKey) {
+    next();
+    return;
+  }
+
+  const provided = req.headers["x-api-key"] ?? req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+  if (!provided || provided !== config.server.apiKey) {
+    res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
+    return;
+  }
+  next();
+}
 
 // ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
 
@@ -62,7 +104,7 @@ app.get("/jobs/:jobId", (req: Request, res: Response) => {
 
 // ─── SUBMIT DELIVERABLE ───────────────────────────────────────────────────────
 
-app.post("/submit", async (req: Request, res: Response) => {
+app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   const body = req.body as SubmitRequest;
 
   // Basic input validation
@@ -100,6 +142,48 @@ app.post("/submit", async (req: Request, res: Response) => {
       success: false,
       jobId:   body.jobId,
       error:   "Job is no longer in Pending state. It has already been resolved.",
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  // Input length validation to prevent prompt injection and memory abuse
+  const MAX_DELIVERABLE_LENGTH = 50_000;
+  const MAX_DESCRIPTION_LENGTH = 5_000;
+  const MAX_CRITERIA_LENGTH    = 2_000;
+
+  if (body.deliverable.length > MAX_DELIVERABLE_LENGTH) {
+    res.status(400).json({
+      success: false,
+      jobId:   body.jobId,
+      error:   `Deliverable exceeds maximum length of ${MAX_DELIVERABLE_LENGTH} characters`,
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  if (body.description.length > MAX_DESCRIPTION_LENGTH) {
+    res.status(400).json({
+      success: false,
+      jobId:   body.jobId,
+      error:   `Description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters`,
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  if (body.acceptanceCriteria.some((c) => c.length > MAX_CRITERIA_LENGTH)) {
+    res.status(400).json({
+      success: false,
+      jobId:   body.jobId,
+      error:   `Each acceptance criterion must be under ${MAX_CRITERIA_LENGTH} characters`,
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  const VALID_DELIVERABLE_TYPES = ["url", "ipfs", "text", "json"] as const;
+  if (!VALID_DELIVERABLE_TYPES.includes(body.deliverableType as typeof VALID_DELIVERABLE_TYPES[number])) {
+    res.status(400).json({
+      success: false,
+      jobId:   body.jobId,
+      error:   `Invalid deliverableType. Must be one of: ${VALID_DELIVERABLE_TYPES.join(", ")}`,
     } satisfies SubmitResponse);
     return;
   }
@@ -166,7 +250,9 @@ app.post("/submit", async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       jobId:   body.jobId,
-      error:   `Internal oracle error: ${message}`,
+      error:   config.isDev
+        ? `Internal oracle error: ${message}`
+        : "Internal oracle error. Please try again later.",
     } satisfies SubmitResponse);
   }
 });
@@ -188,10 +274,11 @@ function bootstrap(): void {
 
   // 2. Start HTTP server — receives freelancer submission triggers
   const server = app.listen(config.server.port, () => {
+    const rpcHost = new URL(config.solana.rpcUrl).hostname;
     console.log(`\n🟢 Mappers Oracle running`);
     console.log(`   HTTP server: http://localhost:${config.server.port}`);
     console.log(`   Program ID:  ${config.solana.programId}`);
-    console.log(`   Network:     ${config.solana.rpcUrl}\n`);
+    console.log(`   Network:     ${rpcHost}\n`);
   });
 
   server.on("error", (err: NodeJS.ErrnoException) => {

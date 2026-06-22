@@ -48,6 +48,10 @@ export const config = {
       }
       return parsed;
     })(),
+    corsOrigins: optional("CORS_ALLOWED_ORIGINS", ""),
+    rateLimitWindowMs: optionalNumber("RATE_LIMIT_WINDOW_MS", 60_000),
+    rateLimitMax: optionalNumber("RATE_LIMIT_MAX_REQUESTS", 20),
+    apiKey: optional("ORACLE_API_KEY", ""),
   },
   sentry: {
     dsn:     optional("SENTRY_DSN", ""),
