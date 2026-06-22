@@ -1,4 +1,4 @@
-# Mappers Protocol Documentation (`docs/wiki/`)
+# Mappers Protocol Documentation (`docs/wiki/`) Full Guide
 
 This directory is the **tracked, version-controlled source of truth** for the Mappers Protocol wiki. The content is derived from and kept aligned with the repository's [`README.md`](../../README.md) and [`mappers_whitepaper.md`](../../mappers_whitepaper.md).
 
