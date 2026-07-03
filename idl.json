@@ -1,1 +1,194 @@
-{"version":"0.1.0","name":"project_mappers","instructions":[{"name":"initializeJob","accounts":[{"name":"client","isMut":true,"isSigner":true},{"name":"freelancer","isMut":false,"isSigner":false},{"name":"oracle","isMut":false,"isSigner":false},{"name":"escrowAccount","isMut":true,"isSigner":false},{"name":"vaultAccount","isMut":true,"isSigner":false},{"name":"systemProgram","isMut":false,"isSigner":false}],"args":[{"name":"jobId","type":"string"},{"name":"amount","type":"u64"}]},{"name":"releasePayment","accounts":[{"name":"authority","isMut":false,"isSigner":true},{"name":"freelancer","isMut":true,"isSigner":false},{"name":"client","isMut":true,"isSigner":false},{"name":"escrowAccount","isMut":true,"isSigner":false},{"name":"vaultAccount","isMut":true,"isSigner":false},{"name":"systemProgram","isMut":false,"isSigner":false}],"args":[]},{"name":"cancelJob","accounts":[{"name":"oracle","isMut":false,"isSigner":true},{"name":"client","isMut":true,"isSigner":false},{"name":"escrowAccount","isMut":true,"isSigner":false},{"name":"vaultAccount","isMut":true,"isSigner":false},{"name":"systemProgram","isMut":false,"isSigner":false}],"args":[]}],"accounts":[{"name":"GigEscrow","type":{"kind":"struct","fields":[{"name":"client","type":"publicKey"},{"name":"freelancer","type":"publicKey"},{"name":"oracle","type":"publicKey"},{"name":"amount","type":"u64"},{"name":"jobId","type":"string"},{"name":"status","type":{"defined":"JobStatus"}},{"name":"escrowBump","type":"u8"},{"name":"vaultBump","type":"u8"}]}}],"types":[{"name":"JobStatus","type":{"kind":"enum","variants":[{"name":"Pending"},{"name":"Completed"},{"name":"Cancelled"}]}}],"errors":[{"code":6000,"name":"JobIdTooLong","msg":"Job ID exceeds the 32-character maximum."},{"code":6001,"name":"InvalidAmount","msg":"Amount must be greater than zero."},{"code":6002,"name":"AmountBelowRentExemption","msg":"Amount is below the rent-exempt minimum."},{"code":6003,"name":"JobNotPending","msg":"Job is not in a Pending state."},{"code":6004,"name":"UnauthorizedExecution","msg":"Signer is neither the client nor the oracle."},{"code":6005,"name":"InvalidFreelancerTarget","msg":"Target does not match the assigned freelancer."},{"code":6006,"name":"InvalidOracleAuthority","msg":"Only the oracle can authorize cancellation."},{"code":6007,"name":"InvalidClientAuthority","msg":"Refund target does not match the original client."}]}
+{
+  "address": "52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu",
+  "metadata": {
+    "name": "project_mappers",
+    "version": "0.2.0",
+    "spec": "0.1.0",
+    "description": "Mappers Protocol — autonomous freelance escrow on Solana"
+  },
+  "instructions": [
+    {
+      "name": "initialize_job",
+      "discriminator": [137, 22, 138, 41, 76, 208, 114, 50],
+      "accounts": [
+        { "name": "client", "writable": true, "signer": true },
+        { "name": "freelancer" },
+        { "name": "oracle" },
+        {
+          "name": "escrow_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 105, 103, 45, 101, 115, 99, 114, 111, 119] },
+              { "kind": "account", "path": "client" },
+              { "kind": "arg", "path": "job_id" }
+            ]
+          }
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] },
+              { "kind": "account", "path": "client" },
+              { "kind": "arg", "path": "job_id" }
+            ]
+          }
+        },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": [
+        { "name": "job_id", "type": "string" },
+        { "name": "amount", "type": "u64" },
+        { "name": "duration_seconds", "type": "i64" }
+      ]
+    },
+    {
+      "name": "release_payment",
+      "discriminator": [24, 34, 191, 86, 145, 160, 183, 233],
+      "accounts": [
+        { "name": "authority", "signer": true },
+        { "name": "freelancer", "writable": true },
+        { "name": "client", "writable": true },
+        {
+          "name": "escrow_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 105, 103, 45, 101, 115, 99, 114, 111, 119] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": []
+    },
+    {
+      "name": "cancel_job",
+      "discriminator": [126, 241, 155, 241, 50, 236, 83, 118],
+      "accounts": [
+        { "name": "oracle", "signer": true },
+        { "name": "client", "writable": true },
+        {
+          "name": "escrow_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 105, 103, 45, 101, 115, 99, 114, 111, 119] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": []
+    },
+    {
+      "name": "refund_after_timeout",
+      "discriminator": [213, 61, 128, 68, 149, 201, 53, 130],
+      "accounts": [
+        { "name": "payer", "signer": true },
+        { "name": "client", "writable": true },
+        {
+          "name": "escrow_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [103, 105, 103, 45, 101, 115, 99, 114, 111, 119] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        {
+          "name": "vault_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              { "kind": "const", "value": [118, 97, 117, 108, 116] },
+              { "kind": "account", "path": "escrow_account.client" },
+              { "kind": "account", "path": "escrow_account.job_id" }
+            ]
+          }
+        },
+        { "name": "system_program", "address": "11111111111111111111111111111111" }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "GigEscrow",
+      "discriminator": [28, 152, 50, 155, 169, 194, 206, 20]
+    }
+  ],
+  "types": [
+    {
+      "name": "GigEscrow",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          { "name": "client", "type": "pubkey" },
+          { "name": "freelancer", "type": "pubkey" },
+          { "name": "oracle", "type": "pubkey" },
+          { "name": "amount", "type": "u64" },
+          { "name": "job_id", "type": "string" },
+          { "name": "status", "type": { "defined": { "name": "JobStatus" } } },
+          { "name": "escrow_bump", "type": "u8" },
+          { "name": "vault_bump", "type": "u8" },
+          { "name": "deadline", "type": "i64" }
+        ]
+      }
+    },
+    {
+      "name": "JobStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          { "name": "Pending" },
+          { "name": "Completed" },
+          { "name": "Cancelled" }
+        ]
+      }
+    }
+  ],
+  "errors": [
+    { "code": 6000, "name": "JobIdTooLong", "msg": "Job ID exceeds the 32-character maximum." },
+    { "code": 6001, "name": "InvalidAmount", "msg": "Funding amount must be greater than zero lamports." },
+    { "code": 6002, "name": "AmountBelowRentExemption", "msg": "Amount is below the vault rent-exempt minimum." },
+    { "code": 6003, "name": "JobNotPending", "msg": "Job is not in a Pending state." },
+    { "code": 6004, "name": "UnauthorizedExecution", "msg": "Signer is neither the escrow client nor the designated oracle." },
+    { "code": 6005, "name": "InvalidFreelancerTarget", "msg": "Target account does not match the assigned freelancer." },
+    { "code": 6006, "name": "InvalidOracleAuthority", "msg": "Only the designated oracle can authorize cancellation." },
+    { "code": 6007, "name": "InvalidClientAuthority", "msg": "Refund target does not match the original client." },
+    { "code": 6008, "name": "DeadlineNotReached", "msg": "The settlement deadline has not been reached yet." },
+    { "code": 6009, "name": "InvalidDuration", "msg": "Duration must be between 1 hour and 180 days." },
+    { "code": 6010, "name": "DurationOverflow", "msg": "Deadline calculation overflowed the i64 range." }
+  ]
+}
