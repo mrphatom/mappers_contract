@@ -6,17 +6,6 @@ Mappers is a decentralized escrow protocol that replaces platform intermediaries
 
 **Program ID (Devnet):** `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu`
 
-[
-
-![CI](https://github.com/mrphatom/mappers_contract/actions/workflows/ci.yml/badge.svg)
-
-![Anchor Program](https://github.com/mrphatom/mappers_contract/actions/workflows/anchor.yml/badge.svg)
-
-
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
-
-
-![Solana](https://img.shields.io/badge/Solana-Devnet-9945FF?logo=solana)
 
 
 ---
