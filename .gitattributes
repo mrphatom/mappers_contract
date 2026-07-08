@@ -1,0 +1,14 @@
+# Mark generated code so GitHub excludes it from language stats and diffs
+lib/api-zod/src/generated/** linguist-generated=true
+lib/api-client-react/src/generated/** linguist-generated=true
+idl.json linguist-generated=true
+oracle/idl.json linguist-generated=true
+
+# Normalize line endings
+* text=auto eol=lf
+*.rs text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+
+# Treat lockfiles as generated too
+pnpm-lock.yaml linguist-generated=true
