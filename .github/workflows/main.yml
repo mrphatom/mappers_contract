@@ -1,0 +1,52 @@
+# .github/workflows/strip-ai-attribution.yml
+name: Strip AI Attribution
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  strip-attribution:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'devin-ai-integration[bot]' || contains(github.event.pull_request.user.login, 'devin')
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rewrite commit messages to remove AI attribution
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git filter-branch --force --msg-filter '
+            grep -v -iE "^Co-[Aa]uthored-[Bb]y:.*(devin|cognition)" | \
+            grep -v -iE "generated (with|by) \[?devin" | \
+            grep -v "^🤖"
+          ' -- ${{ github.event.pull_request.base.ref }}..HEAD
+          git push --force origin HEAD:${{ github.event.pull_request.head.ref }}
+
+      - name: Strip PR description footer
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.pull_request.body || "";
+            const cleaned = body
+              .split("\n")
+              .filter(line => !/co-authored-by.*devin/i.test(line))
+              .filter(line => !/generated with \[?devin/i.test(line))
+              .join("\n");
+            if (cleaned !== body) {
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: context.payload.pull_request.number,
+                body: cleaned,
+              });
+            }
