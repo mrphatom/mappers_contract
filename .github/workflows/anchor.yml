@@ -1,0 +1,67 @@
+name: Anchor Program
+
+on:
+  push:
+    branches: [main, mini-test]
+    paths:
+      - 'programs/**'
+      - 'tests/**'
+      - 'shared/**'
+      - 'Anchor.toml'
+      - 'Cargo.toml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'programs/**'
+      - 'tests/**'
+      - 'shared/**'
+      - 'Anchor.toml'
+      - 'Cargo.toml'
+
+jobs:
+  anchor-build-test:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: metadaoproject/setup-anchor@v3.1
+        with:
+          anchor-version: '0.30.1'
+          solana-cli-version: '1.18.26'
+          node-version: '20.16.0'
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate local Solana keypair for test validator
+        run: solana-keygen new --no-bip39-passphrase --silent --outfile ~/.config/solana/id.json
+
+      - name: Cache Rust build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Anchor build
+        run: anchor build
+
+      - name: Anchor test (localnet)
+        run: pnpm run test:anchor
+
+      - name: Upload build artifacts (IDL + program binary)
+        uses: actions/upload-artifact@v4
+        with:
+          name: anchor-build-output
+          path: |
+            target/idl/
+            target/deploy/*.so
+          retention-days: 30
