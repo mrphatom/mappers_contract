@@ -10,22 +10,14 @@ Mappers is a decentralized escrow protocol that replaces platform intermediaries
 
 ![CI](https://github.com/mrphatom/mappers_contract/actions/workflows/ci.yml/badge.svg)
 
-](https://github.com/mrphatom/mappers_contract/actions/workflows/ci.yml)
-[
-
 ![Anchor Program](https://github.com/mrphatom/mappers_contract/actions/workflows/anchor.yml/badge.svg)
 
-](https://github.com/mrphatom/mappers_contract/actions/workflows/anchor.yml)
-[
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-](https://opensource.org/licenses/MIT)
-[
 
 ![Solana](https://img.shields.io/badge/Solana-Devnet-9945FF?logo=solana)
 
-](https://explorer.solana.com/address/52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu?cluster=devnet)
 
 ---
 
