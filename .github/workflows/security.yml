@@ -1,0 +1,52 @@
+name: Security Audit
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 6 * * 1'  # weekly, Monday 06:00 UTC
+
+jobs:
+  cargo-audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run cargo audit
+        run: cargo audit --ignore RUSTSEC-2022-0093
+
+  pnpm-audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.16.0'
+          cache: 'pnpm'
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Audit workspace dependencies
+        run: pnpm audit --audit-level=high
+        continue-on-error: true
+
+  oracle-npm-audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.16.0'
+      - name: Install oracle dependencies
+        working-directory: oracle
+        run: npm install
+      - name: Audit oracle dependencies
+        working-directory: oracle
+        run: npm audit --audit-level=high
+        continue-on-error: true
