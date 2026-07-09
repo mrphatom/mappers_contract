@@ -1,0 +1,124 @@
+FINAL PROMPT — ENVIRONMENT SETUP + IDL RECONCILIATION + CI
+============================================================
+This is likely my last Replit prompt for a while, so execute completely and
+verify every step before moving to the next. If any step fails, STOP, show
+me the exact error, and do not proceed to steps that depend on it.
+
+=== PHASE 0: VERIFY / INSTALL TOOLCHAIN (do this first, nothing else works without it) ===
+
+1. Check what's already installed:
+   rustc --version
+   solana --version
+   anchor --version
+   Report the output of all three, even if they error/aren't found.
+
+2. If Rust is missing:
+   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+   source "$HOME/.cargo/env"
+
+3. If Solana CLI is missing:
+   sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+   export PATH="$HOME/.local/share/solana/install/active_release/bin:$PATH"
+   Add that PATH export to ~/.bashrc or ~/.profile so it persists across shell
+   sessions in this Repl.
+
+4. If Anchor CLI is missing:
+   cargo install --git https://github.com/coral-xyz/anchor avm --locked --force
+   avm install 0.30.1
+   avm use 0.30.1
+
+5. Generate a local wallet keypair (this is what was missing before):
+   solana-keygen new --outfile ~/.config/solana/id.json --no-bip39-passphrase
+   Confirm the file exists: cat ~/.config/solana/id.json | head -c 50
+   Set the CLI to devnet: solana config set --url https://api.devnet.solana.com
+   Airdrop devnet SOL to this new keypair: solana airdrop 2
+   (if the airdrop rate-limits, try solana airdrop 1 twice, a few seconds apart)
+
+6. Confirm Anchor.toml's [provider] wallet path matches ~/.config/solana/id.json
+   (or update Anchor.toml to point at it if it references a different path).
+
+Report the final output of `rustc --version && solana --version && anchor --version`
+before continuing. Do not proceed past this point if any of the three is not
+a working, callable command.
+
+=== PHASE 1: BUILD THE PROGRAM ===
+
+1. From repo root: anchor build
+   This must complete without errors. If it fails on a dependency or Rust
+   version mismatch, show me the exact compiler error — do not paper over it
+   by deleting code.
+2. Confirm the IDL was generated: ls -la target/idl/
+   Show me target/idl/project_mappers.json's full contents.
+3. Confirm the program ID in the generated IDL matches declare_id! in
+   programs/project_mappers/src/lib.rs (52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu).
+   If they don't match, tell me — do not silently overwrite declare_id!.
+
+=== PHASE 2: RECONCILE ALL IDL COPIES ===
+
+Now that a real, freshly-built IDL exists at target/idl/project_mappers.json:
+
+1. Copy it to replace the ROOT idl.json exactly.
+2. Copy it to replace oracle/idl.json exactly.
+3. Rewrite lib/sdk/src/idl.ts to export this exact same IDL content as a
+   TypeScript const (export const IDL = {...} as const;) — same discriminators,
+   same accounts, same types, same errors. Do not hand-modify or "improve" any
+   values — it must be byte-for-byte equivalent to what anchor build produced,
+   just wrapped as a .ts export instead of raw .json.
+4. In lib/sdk/src/client.ts: since the IDL is now proper Anchor 0.30 format
+   with a real address field, check whether `new anchor.Program(idl, provider)`
+   works with fully-typed .methods/.account access. If it does, remove the
+   manual `{ ...IDL, address: programId.toBase58() }` spread and any `as any`
+   casts that are no longer needed. If removing a cast produces a TypeScript
+   error, put it back — do not leave the build broken for the sake of removing
+   a cast.
+5. Run: pnpm run typecheck:libs
+   This must pass before moving on.
+
+=== PHASE 3: RUN ANCHOR TESTS ===
+
+1. anchor test --provider.cluster localnet
+   This will spin up a local test validator automatically — let it.
+2. If any test fails, show me the FULL failure output (not a summary) — the
+   exact assertion that failed and the actual vs expected values.
+3. Do not modify a test's assertions just to make it pass. If a test is
+   failing because the code is wrong, fix the code. If a test is failing
+   because the test itself has a bug, tell me specifically what's wrong with
+   the test and propose the fix before applying it.
+4. Once localnet passes, also try: anchor test --provider.cluster devnet
+   (this uses the airdropped devnet SOL from Phase 0). If devnet is flaky due
+   to rate limits, that's expected — note it and move on, localnet passing is
+   the real bar here.
+
+=== PHASE 4: START THE ORACLE AND CONFIRM IT BOOTS ===
+
+1. cd oracle && npm install
+2. Confirm oracle/.env exists. If not, copy oracle/.env.example to oracle/.env
+   and fill in only the values that are free/already available in this Repl's
+   secrets (do NOT fabricate real API keys — leave placeholders for anything
+   you don't have and tell me exactly which ones are still needed).
+3. npm run dev
+4. Confirm it prints "🟢 Mappers Oracle running" or an equivalent clean boot
+   message, or if it errors, show me the exact error. A missing Gemini/
+   Anthropic/Helius key producing a clear startup error is expected and fine
+   — that's not a bug, just tell me which vars are still needed from me.
+
+=== PHASE 5: FULL CI GATE (repo root) ===
+
+Run each of these in order. Report the output of each. Fix anything red
+before moving to the next step:
+1. pnpm install
+2. pnpm run typecheck
+3. pnpm run build
+4. cd oracle && npm run test:coverage && cd ..
+5. npx prettier --check .   (if red: npx prettier --write . then re-check)
+
+=== FINAL STEP — DO NOT SKIP ===
+
+Run `git status` and paste the full output here. Do not `git add`, commit, or
+push anything. I will review the staged/untracked file list myself to confirm
+no .env, no id.json, no *-keypair.json, and no other secret is about to be
+committed before I approve the push.
+
+If literally anything in Phase 0-3 fails and can't be resolved, STOP and
+report exactly what failed and the exact error text — don't skip ahead to
+Phase 4/5 and hide that something upstream is broken.
