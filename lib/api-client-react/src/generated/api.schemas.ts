@@ -21,6 +21,8 @@ export const JobStatus = {
 export interface Job {
   id: number;
   jobId: string;
+  /** On-chain escrow account public key (base58) */
+  escrowPubkey: string;
   clientPubkey: string;
   freelancerPubkey: string;
   oraclePubkey: string;
@@ -46,10 +48,16 @@ export interface Job {
 export interface JobInput {
   /** @maxLength 32 */
   jobId: string;
+  /** On-chain escrow account public key (base58) */
+  escrowPubkey: string;
   clientPubkey: string;
   freelancerPubkey: string;
   oraclePubkey: string;
   amountLamports: string;
+  /** Unix seconds timestamp — must be within 300 s of server time */
+  timestamp: number;
+  /** Base58 ed25519 signature over mappers-register:{escrowPubkey}:{timestamp} */
+  signature: string;
   description?: string;
   acceptanceCriteria?: string[];
 }
@@ -100,7 +108,8 @@ export const SubmitResultOutcome = {
 
 export interface SubmitResult {
   success: boolean;
-  jobId: string;
+  /** Escrow account pubkey (base58) */
+  escrowPubkey: string;
   /** @nullable */
   outcome: SubmitResultOutcome;
   /** @nullable */
@@ -137,4 +146,3 @@ export const ListJobsStatus = {
   completed: 'completed',
   cancelled: 'cancelled',
 } as const;
-

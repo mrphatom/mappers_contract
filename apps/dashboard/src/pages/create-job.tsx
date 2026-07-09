@@ -6,6 +6,9 @@ import { BN } from "@coral-xyz/anchor";
 import { useCreateJob } from "@workspace/api-client-react";
 import { useMappersClient } from "@/hooks/use-mappers-client";
 import { WalletButton } from "@/components/wallet-button";
+import { toast } from "@/hooks/use-toast";
+
+const MINIMUM_ESCROW_LAMPORTS = 890_880;
 
 const INPUT =
   "w-full px-4 py-3 text-sm font-mono glass rounded-xl text-white/80 placeholder:text-white/20 outline-none focus:border-emerald-500/40 focus:shadow-[0_0_16px_rgba(20,241,149,0.06)] transition-all duration-200 min-h-[44px] bg-transparent";
@@ -34,10 +37,31 @@ function Field({
 
 type TxPhase = "idle" | "signing" | "confirming" | "done";
 
+function encodeBase58(bytes: Uint8Array): string {
+  const ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits: number[] = [0];
+  for (let i = 0; i < bytes.length; i++) {
+    let carry = bytes[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let result = "";
+  for (let k = 0; bytes[k] === 0 && k < bytes.length - 1; k++) result += "1";
+  for (let q = digits.length - 1; q >= 0; q--) result += ALPHABET[digits[q]];
+  return result;
+}
+
 export default function CreateJob() {
   const [, navigate] = useLocation();
   const createJob = useCreateJob();
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, signMessage } = useWallet();
   const mappersClient = useMappersClient();
 
   const [form, setForm] = useState({
@@ -46,6 +70,7 @@ export default function CreateJob() {
     freelancerPubkey: "",
     oraclePubkey: "",
     amountSol: "",
+    durationDays: "7",
     description: "",
   });
   const [criteria, setCriteria] = useState<string[]>([""]);
@@ -71,24 +96,53 @@ export default function CreateJob() {
   const setCriterion = (i: number, val: string) =>
     setCriteria((c) => c.map((v, idx) => (idx === i ? val : v)));
 
-  function validate(): { amountLamports: number; acceptanceCriteria: string[] } | null {
+  function validate(): { amountLamports: number; durationSeconds: number; acceptanceCriteria: string[] } | null {
     const amountLamports = Math.round(parseFloat(form.amountSol) * 1e9);
-    if (isNaN(amountLamports) || amountLamports <= 0) {
-      setError("Enter a valid positive SOL amount.");
+    if (isNaN(amountLamports) || amountLamports < MINIMUM_ESCROW_LAMPORTS) {
+      setError(`Minimum amount is ${(MINIMUM_ESCROW_LAMPORTS / 1e9).toFixed(6)} SOL (rent-exempt minimum).`);
       return null;
     }
     if (!form.jobId.trim()) { setError("Job ID is required."); return null; }
-    if (form.jobId.trim().length > 32) { setError("Job ID must be ≤ 32 characters."); return null; }
+    if (new TextEncoder().encode(form.jobId.trim()).length > 32) {
+      setError("Job ID must be ≤ 32 UTF-8 bytes.");
+      return null;
+    }
+    const durationDays = parseFloat(form.durationDays);
+    if (isNaN(durationDays) || durationDays <= 0) {
+      setError("Duration must be a positive number of days.");
+      return null;
+    }
+    const durationSeconds = Math.round(durationDays * 86_400);
+    if (durationSeconds < 3_600) { setError("Minimum duration is 1 hour."); return null; }
+    if (durationSeconds > 15_552_000) { setError("Maximum duration is 180 days."); return null; }
     if (!form.clientPubkey.trim()) { setError("Client public key is required."); return null; }
     if (!form.freelancerPubkey.trim()) { setError("Freelancer public key is required."); return null; }
     if (!form.oraclePubkey.trim()) { setError("Oracle public key is required."); return null; }
-    return { amountLamports, acceptanceCriteria: criteria.filter((c) => c.trim() !== "") };
+    return { amountLamports, durationSeconds, acceptanceCriteria: criteria.filter((c) => c.trim() !== "") };
   }
 
-  function registerInDb(sig?: string) {
+  async function signAndRegister(escrowPubkey: string, sig?: string) {
+    if (!publicKey || !signMessage) {
+      setError("Wallet must be connected to sign the registration.");
+      return;
+    }
+
     const result = validate();
     if (!result) return;
     const { amountLamports, acceptanceCriteria } = result;
+
+    const timestamp = Math.floor(Date.now() / 1000);
+    const message = `mappers-register:${escrowPubkey}:${timestamp}`;
+    const msgBytes = new TextEncoder().encode(message);
+
+    let signature: string;
+    try {
+      const sigBytes = await signMessage(msgBytes);
+      signature = encodeBase58(sigBytes);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Wallet signature rejected.");
+      return;
+    }
 
     const desc = [
       form.description.trim() || undefined,
@@ -101,27 +155,50 @@ export default function CreateJob() {
       {
         data: {
           jobId: form.jobId.trim(),
+          escrowPubkey,
           clientPubkey: form.clientPubkey.trim(),
           freelancerPubkey: form.freelancerPubkey.trim(),
           oraclePubkey: form.oraclePubkey.trim(),
           amountLamports: amountLamports.toString(),
+          timestamp,
+          signature,
           description: desc || undefined,
           acceptanceCriteria: acceptanceCriteria.length > 0 ? acceptanceCriteria : undefined,
         },
       },
       {
-        onSuccess: (job) => navigate(`/jobs/${job.jobId}`),
-        onError: (err) =>
-          setError(err instanceof Error ? err.message : "Failed to register job."),
+        onSuccess: (job) => {
+          toast({ title: "Job registered", description: `Escrow ${job.jobId} created successfully.` });
+          navigate(`/jobs/${job.escrowPubkey}`);
+        },
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Failed to register job.";
+          setError(msg);
+          toast({ title: "Registration failed", description: msg });
+        },
       }
     );
   }
 
-  const handleRegisterOnly = (e: React.FormEvent) => {
+  const handleRegisterOnly = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setOnChain(false);
-    registerInDb();
+
+    if (!mappersClient || !publicKey) {
+      setError("Connect your wallet first.");
+      return;
+    }
+
+    const result = validate();
+    if (!result) return;
+
+    const { PublicKey } = await import("@solana/web3.js");
+    const [escrowPda] = mappersClient.deriveEscrowPda(
+      publicKey,
+      form.jobId.trim()
+    );
+    await signAndRegister(escrowPda.toBase58());
   };
 
   const handleInitOnChain = async (e: React.FormEvent) => {
@@ -136,7 +213,7 @@ export default function CreateJob() {
 
     const result = validate();
     if (!result) return;
-    const { amountLamports } = result;
+    const { amountLamports, durationSeconds } = result;
 
     let sig: string;
     try {
@@ -146,6 +223,7 @@ export default function CreateJob() {
       sig = await mappersClient.initializeJob({
         jobId: form.jobId.trim(),
         amount: new BN(amountLamports),
+        durationSeconds,
         freelancer: new PublicKey(form.freelancerPubkey.trim()),
         oracle: new PublicKey(form.oraclePubkey.trim()),
       });
@@ -163,7 +241,9 @@ export default function CreateJob() {
     }
 
     setTxPhase("done");
-    registerInDb(sig);
+
+    const [escrowPda] = mappersClient.deriveEscrowPda(publicKey, form.jobId.trim());
+    await signAndRegister(escrowPda.toBase58(), sig);
   };
 
   const busy = createJob.isPending || txPhase === "signing" || txPhase === "confirming";
@@ -198,8 +278,7 @@ export default function CreateJob() {
               </span>
             ) : (
               <span className="text-amber-400/70">
-                Connect your Phantom wallet to sign the on-chain escrow transaction. Or use{" "}
-                <strong className="text-white/70">Register Only</strong> to save to the database without an on-chain tx.
+                Connect your Phantom wallet to sign the escrow transaction and registration message.
               </span>
             )}
           </div>
@@ -247,7 +326,7 @@ export default function CreateJob() {
           )}
 
           <form className="space-y-5">
-            <Field label="Job ID" hint="Max 32 characters. Use a short unique identifier (e.g. gig-001).">
+            <Field label="Job ID" hint="Max 32 UTF-8 bytes. Use a short unique identifier (e.g. gig-001).">
               <input
                 className={INPUT}
                 placeholder="gig-001"
@@ -305,19 +384,35 @@ export default function CreateJob() {
               />
             </Field>
 
-            <Field label="Amount (SOL)" hint="Escrowed SOL. Minimum ~0.000890880 SOL (rent-exempt).">
-              <input
-                className={INPUT}
-                type="number"
-                step="0.000000001"
-                min="0.000000001"
-                inputMode="decimal"
-                placeholder="1.5"
-                value={form.amountSol}
-                onChange={set("amountSol")}
-                required
-              />
-            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <Field label="Amount (SOL)" hint={`Min ${(MINIMUM_ESCROW_LAMPORTS / 1e9).toFixed(6)} SOL (rent-exempt).`}>
+                <input
+                  className={INPUT}
+                  type="number"
+                  step="0.000000001"
+                  min="0.000890880"
+                  inputMode="decimal"
+                  placeholder="1.5"
+                  value={form.amountSol}
+                  onChange={set("amountSol")}
+                  required
+                />
+              </Field>
+              <Field label="Duration (days)" hint="How long before the client can trigger a timeout refund.">
+                <input
+                  className={INPUT}
+                  type="number"
+                  step="0.5"
+                  min="0.042"
+                  max="180"
+                  inputMode="decimal"
+                  placeholder="7"
+                  value={form.durationDays}
+                  onChange={set("durationDays")}
+                  required
+                />
+              </Field>
+            </div>
 
             <Field label="Description" hint="Optional: describe the work being commissioned.">
               <textarea
@@ -391,18 +486,20 @@ export default function CreateJob() {
                 </button>
               )}
 
-              <button
-                type="submit"
-                disabled={busy}
-                onClick={handleRegisterOnly}
-                className={`flex-1 px-5 py-3.5 text-xs font-mono font-bold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] min-h-[48px] ${
-                  connected && mappersClient
-                    ? "glass text-white/50 hover:text-white/80 hover:border-white/15"
-                    : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-black hover:from-emerald-400 hover:to-emerald-300 shadow-[0_0_24px_rgba(20,241,149,0.2)]"
-                }`}
-              >
-                {createJob.isPending && !onChain ? "Registering…" : "Register Only"}
-              </button>
+              {connected && (
+                <button
+                  type="submit"
+                  disabled={busy}
+                  onClick={handleRegisterOnly}
+                  className={`flex-1 px-5 py-3.5 text-xs font-mono font-bold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.97] min-h-[48px] ${
+                    mappersClient
+                      ? "glass text-white/50 hover:text-white/80 hover:border-white/15"
+                      : "bg-gradient-to-r from-emerald-500 to-emerald-400 text-black hover:from-emerald-400 hover:to-emerald-300 shadow-[0_0_24px_rgba(20,241,149,0.2)]"
+                  }`}
+                >
+                  {createJob.isPending && !onChain ? "Registering…" : "Register Only"}
+                </button>
+              )}
 
               <a
                 href="/jobs"

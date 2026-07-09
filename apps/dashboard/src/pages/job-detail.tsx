@@ -10,6 +10,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { StatusBadge } from "@/components/status-badge";
 import { formatLamports, truncatePubkey, formatDate } from "@/lib/format";
+import { toast } from "@/hooks/use-toast";
 
 type DeliverableType = "url" | "ipfs" | "text" | "json";
 
@@ -153,9 +154,18 @@ export default function JobDetail() {
           setOutcome(result.outcome ?? null);
           setSubmitted(true);
           invalidate();
+          toast({
+            title: "Verification complete",
+            description: result.outcome
+              ? `Oracle verdict: ${result.outcome}`
+              : "Submitted for AI verification.",
+          });
         },
-        onError: (err) =>
-          setSubmitError(err instanceof Error ? err.message : "Submission failed."),
+        onError: (err) => {
+          const msg = err instanceof Error ? err.message : "Submission failed.";
+          setSubmitError(msg);
+          toast({ title: "Submission failed", description: msg });
+        },
       }
     );
   };
@@ -224,7 +234,14 @@ export default function JobDetail() {
                 onClick={() =>
                   updateJob.mutate(
                     { jobId: jobId ?? "", data: { status: "completed" } },
-                    { onSuccess: invalidate }
+                    {
+                      onSuccess: () => {
+                        invalidate();
+                        toast({ title: "Job marked complete" });
+                      },
+                      onError: (err) =>
+                        toast({ title: "Update failed", description: err instanceof Error ? err.message : "Could not update job." }),
+                    }
                   )
                 }
                 disabled={updateJob.isPending}
@@ -236,7 +253,14 @@ export default function JobDetail() {
                 onClick={() =>
                   updateJob.mutate(
                     { jobId: jobId ?? "", data: { status: "cancelled" } },
-                    { onSuccess: invalidate }
+                    {
+                      onSuccess: () => {
+                        invalidate();
+                        toast({ title: "Job cancelled" });
+                      },
+                      onError: (err) =>
+                        toast({ title: "Update failed", description: err instanceof Error ? err.message : "Could not update job." }),
+                    }
                   )
                 }
                 disabled={updateJob.isPending}
@@ -254,6 +278,11 @@ export default function JobDetail() {
           <GlassSection title="Escrow Details">
             <div>
               <InfoRow label="Job ID" value={job.jobId} />
+              <InfoRow
+                label="Escrow PDA"
+                value={truncatePubkey(job.escrowPubkey)}
+                link={`https://explorer.solana.com/address/${job.escrowPubkey}?cluster=devnet`}
+              />
               <InfoRow label="Amount" value={<span className="text-emerald-400">◎ {formatLamports(job.amountLamports)} SOL</span>} />
               <InfoRow
                 label="Client"

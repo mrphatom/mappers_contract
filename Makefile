@@ -6,46 +6,46 @@
 # ─── SETUP ───────────────────────────────────────────────────────────────────
 
 install:
-	yarn install
+        pnpm install
 
 oracle-install:
-	cd oracle && npm install
+        cd oracle && npm install
 
 setup: install oracle-install
-	@echo "✅ All dependencies installed"
+        @echo "✅ All dependencies installed"
 
 # ─── CONTRACT ────────────────────────────────────────────────────────────────
 
 build:
-	anchor build
+        anchor build
 
 # ─── TESTS ───────────────────────────────────────────────────────────────────
 
 test: build
-	anchor test --provider.cluster localnet
+        anchor test --provider.cluster localnet
 
 test-devnet: build
-	anchor test --provider.cluster devnet
+        anchor test --provider.cluster devnet
 
 # ─── ORACLE ──────────────────────────────────────────────────────────────────
 
 oracle-dev:
-	cd oracle && npm run dev
+        cd oracle && npm run dev
 
 oracle-build:
-	cd oracle && npm run build
+        cd oracle && npm run build
 
 # ─── END-TO-END ──────────────────────────────────────────────────────────────
 
 # Run oracle first in a separate terminal: make oracle-dev
 e2e:
-	ts-node scripts/e2e-devnet.ts
+        ts-node scripts/e2e-devnet.ts
 
 # ─── CLEAN ───────────────────────────────────────────────────────────────────
 
 clean:
-	rm -rf target
-	rm -rf node_modules
-	rm -rf oracle/node_modules
-	rm -rf oracle/dist
-	rm -rf .anchor
+        rm -rf target
+        rm -rf node_modules
+        rm -rf oracle/node_modules
+        rm -rf oracle/dist
+        rm -rf .anchor

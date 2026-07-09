@@ -202,7 +202,7 @@ npm run dev`}
           {/* Oracle endpoints */}
           <GlassPanel title="Oracle Endpoints" icon={Activity}>
             <Row label="GET /health" value="Liveness + pending job count" />
-            <Row label="GET /jobs/:id" value="Fetch tracked job state" />
+            <Row label="GET /jobs/:escrowPubkey" value="Fetch tracked job state by escrow account address" />
             <Row label="POST /submit" value="Trigger AI verification for a deliverable" />
           </GlassPanel>
 

@@ -23,22 +23,35 @@ vi.mock("../config", () => ({
   },
 }));
 
-// Mock the AI clients so we don't make real API calls
-const mockGenerateContent = vi.fn();
+// These are declared with `let` so they live in the outer scope and can be
+// referenced lazily inside the class-based mock methods below.  `vi.mock`
+// factories are hoisted to run BEFORE any module-level code, so we cannot
+// use `const x = vi.fn()` here – but we CAN safely access `let` variables
+// from inside *method bodies*, because methods are only invoked later (inside
+// test cases), at which point the variables have been assigned.
+let mockGenerateContent: ReturnType<typeof vi.fn>;
+let mockMessagesCreate:  ReturnType<typeof vi.fn>;
+
+// Mock the AI clients so we don't make real API calls.
+// Class syntax is used instead of vi.fn().mockImplementation() because the
+// class constructor is a proper function and can be called with `new`.
 vi.mock("@google/generative-ai", () => ({
-  GoogleGenerativeAI: vi.fn().mockImplementation(() => ({
-    getGenerativeModel: vi.fn().mockReturnValue({
-      generateContent: mockGenerateContent,
-    }),
-  })),
+  GoogleGenerativeAI: class {
+    getGenerativeModel() {
+      return { generateContent: mockGenerateContent };
+    }
+  },
 }));
 
-const mockMessagesCreate = vi.fn();
 vi.mock("@anthropic-ai/sdk", () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: { create: mockMessagesCreate },
-  })),
+  default: class {
+    messages = { create: (...args: unknown[]) => mockMessagesCreate(...args) };
+  },
 }));
+
+// Assign the spy functions AFTER vi.mock (which is hoisted above this point).
+mockGenerateContent = vi.fn();
+mockMessagesCreate  = vi.fn();
 
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";

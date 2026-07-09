@@ -6,6 +6,7 @@ import { formatLamports, truncatePubkey, formatDate } from "@/lib/format";
 interface Job {
   id: number;
   jobId: string;
+  escrowPubkey: string;
   clientPubkey: string;
   freelancerPubkey: string;
   amountLamports: string;
@@ -16,7 +17,7 @@ interface Job {
 
 export function JobCard({ job }: { job: Job }) {
   return (
-    <Link href={`/jobs/${job.jobId}`}>
+    <Link href={`/jobs/${job.escrowPubkey}`}>
       <div className="group relative glass rounded-2xl p-5 glass-hover transition-all duration-300 cursor-pointer hover:shadow-[0_8px_32px_rgba(20,241,149,0.08)] hover:-translate-y-0.5 overflow-hidden">
         {/* Subtle gradient accent line */}
         <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-emerald-500/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />

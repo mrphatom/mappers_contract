@@ -218,7 +218,7 @@ export default function Dashboard() {
                       >
                         <td className="px-5 py-4">
                           <Link
-                            href={`/jobs/${job.jobId}`}
+                            href={`/jobs/${job.escrowPubkey}`}
                             className="text-emerald-400/80 hover:text-emerald-400 transition-colors inline-flex items-center gap-1 group-hover:gap-1.5"
                           >
                             {job.jobId}

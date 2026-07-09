@@ -159,7 +159,7 @@ export default function Jobs() {
                     >
                       <td className="px-5 py-4">
                         <Link
-                          href={`/jobs/${job.jobId}`}
+                          href={`/jobs/${job.escrowPubkey}`}
                           className="text-emerald-400/80 hover:text-emerald-400 transition-colors font-semibold"
                         >
                           {job.jobId}
@@ -182,7 +182,7 @@ export default function Jobs() {
                       </td>
                       <td className="px-5 py-4 text-right">
                         <Link
-                          href={`/jobs/${job.jobId}`}
+                          href={`/jobs/${job.escrowPubkey}`}
                           className="inline-flex items-center gap-1 text-[10px] text-white/20 group-hover:text-emerald-400/60 transition-colors"
                         >
                           View <ArrowUpRight className="w-3 h-3" />

@@ -38,7 +38,7 @@ function requireAdminKey(req: Request, res: Response): boolean {
   return true;
 }
 
-async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<globalThis.Response> {
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {

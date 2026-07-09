@@ -11,6 +11,7 @@ test-ledger
 !.env.example
 
 # Solana keypair files — never commit private keys
+id.json
 *-keypair.json
 keypair.json
 wallet.json
@@ -29,11 +30,18 @@ node_modules
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+logs/
+
+# Coverage
+coverage/
+
 # Package managers
 .yarn
 .pnp.*
 pnpm-debug.log*
 
 # Editor
-.vscode/settings.json
+.vscode/
 .idea/
