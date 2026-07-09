@@ -1,0 +1,182 @@
+are they any errors or bugs or vulnerabilities? Run a FULL AUDIT of the all files and code in the repository (even system codes, sdk, and everything) and give me a full AUDIT on it.
+
+Also, give suggestions for a fix and features for any and everything (SDK and everything)
+
+
+Thinking process (14 tools used)
+Below is a security and code audit of the mappers_contract repository, focused on the two components that actually move funds and handle untrusted input: the on-chain Anchor program (programs/project_mappers/src/lib.rs) and the oracle middleware (oracle/src/*). I read those in full. I was not able to read the contents of lib/sdk/src/* (client.ts, oracle.ts, pda.ts, etc.) or apps/api-server/src/* in this pass, so findings for those are limited — I note that explicitly at the end.
+
+On-chain program (programs/project_mappers/src/lib.rs)
+The core escrow logic is generally sound: PDAs are derived deterministically, has_one constraints validate client/freelancer/oracle, and close = client reclaims rent. lib.rs:134-141 The vault is a lamport-only system PDA signed via CpiContext::new_with_signer, which is correct. lib.rs:54-64
+
+Issues:
+
+1. No timeout / client-refund path — funds can be locked indefinitely (High). cancel_job requires the oracle signer (has_one = oracle), and release_payment only accepts the client or oracle as authority. lib.rs:49-52 lib.rs:159-166 If the oracle key is lost or offline and the freelancer never delivers, the client has no unilateral way to reclaim funds. There is no expiry/deadline field on GigEscrow. lib.rs:178-188
+
+2. ESCALATE has no on-chain resolution. When the AI models disagree, the vault stays Pending forever unless a human manually triggers the oracle. There is no timelock or arbitration instruction on-chain. verification.ts:198-202
+
+3. Vault dust / overfunding. Anyone can send lamports to the vault PDA, but only the stored amount is transferred out on release/cancel, leaving residual lamports stranded (low severity, but worth handling by draining the full balance). lib.rs:80-90
+
+4. Trust model. A compromised oracle key cannot steal to an arbitrary address (destinations are constrained by has_one to freelancer/client), but it can grief by prematurely releasing or refunding. This is an accepted design limit, not a bug — but it should be documented as the central trust assumption.
+
+Oracle middleware (oracle/src/*)
+5. JobStore is keyed by jobId alone → collision / hijack (High). On-chain PDAs are unique per (client, jobId), but the store maps a bare jobId string to one job. store.ts:7-13 Two clients using the same jobId collide; the second upsert overwrites the first, and /submit resolves the wrong escrow. The listener uses the same bare key. listener.ts:52-59 The store should be keyed by the escrow pubkey (or client:jobId).
+
+6. In-memory store with no startup backfill (High availability bug). The store is a plain Map. store.ts:4-5 The listener only reacts to account updates streamed from Helius. listener.ts:106-123 After a restart, previously-created pending jobs are unknown until they receive a fresh update, so /submit returns 404 for legitimate jobs. There is no initial getProgramAccounts backfill and no persistence.
+
+7. /submit authentication is optional (High if misconfigured). If ORACLE_API_KEY is unset, requireApiKey calls next() and the fund-moving endpoint is fully open. index.ts:59-71 The default in config is an empty string. config.ts:54 The endpoint should fail closed (refuse to start without a key in production).
+
+8. No caller-to-freelancer binding. Even with the shared API key, any holder can submit an arbitrary deliverable for any jobId. The AI verdict is the sole gate to releasing real SOL, so a fabricated deliverable that satisfies the criteria triggers payment. index.ts:205-214 There is no signature proving the submission came from the on-chain freelancer.
+
+9. Prompt-injection risk on the fund-release path. The deliverable is wrapped in XML tags with an instruction to "treat as data," which is a reasonable but not airtight mitigation. verification.ts:25-47 Because a successful injection on both models releases funds, this is the highest-value attack surface. Consider structured/tool-based output, output-schema enforcement, and independent adversarial prompts per model.
+
+10. No per-job locking → race / double-processing. Concurrent /submit calls for the same job both run consensus; the second on-chain tx fails with JobNotPending, but AI calls are wasted and behavior is non-deterministic. index.ts:205-220 Add an in-flight lock per job.
+
+11. No timeout on AI calls. Promise.all awaits both model calls with no wrapping timeout, so a hung provider blocks the request (DoS pressure on the event loop / connections). verification.ts:211-215
+
+12. Fictional/incorrect default model names (Bug). Defaults are gemini-3.5-flash and claude-sonnet-4-6, which are not valid model identifiers and will cause API errors if the env vars aren't overridden. config.ts:37-38 Use verified model IDs.
+
+13. Error verbosity leaks internals when NODE_ENV is unset. isDev defaults to development, so /submit returns raw internal error messages unless NODE_ENV=production is explicitly set. config.ts:60 index.ts:252-255 Default to production-safe behavior.
+
+14. Weak response validation. parseModelResponse validates verdict and confidence but casts the rest of the JSON without type checks, and toModelVerdict trusts the shape. verification.ts:154-167 A schema validator (e.g. zod) would harden this.
+
+Positives worth noting: helmet, cors, express-rate-limit, a 100 kb body limit, and explicit input-length caps are all present and correct. index.ts:35-55 index.ts:149-179 Secret loading fails loudly on bad keys. chain.ts:10-26
+
+Suggested fixes (priority order)
+Key JobStore by escrow pubkey or client:jobId; propagate the same key through listener//submit.
+Add a startup getProgramAccounts backfill and durable persistence (or accept eventual re-detection and document it).
+Add an on-chain deadline field + a permissionless refund_after_timeout instruction so clients aren't dependent on the oracle for liveness.
+Add an on-chain arbitration/timelock path for ESCALATE.
+Make /submit fail closed without an API key in production, and bind submissions to the on-chain freelancer via a signed message.
+Add per-job in-flight locking and idempotency.
+Wrap AI calls in timeouts; validate responses with a schema.
+Fix the default model identifiers; default NODE_ENV/error handling to production-safe.
+Suggested features
+Reputation/history export as advertised in the whitepaper (portable on-chain reputation).
+Multi-oracle / threshold-signature oracle set instead of a single hot key.
+On-chain event logs (Anchor emit!) for indexing rather than relying solely on account-diff decoding.
+Support for SPL-token escrow, not just native SOL.
+Partial/milestone releases.
+What I did not verify
+I did not read the contents of lib/sdk/src/* (including client.ts, oracle.ts, pda.ts, idl.ts), apps/api-server/src/*, apps/dashboard, lib/db, the tests/, or the scripts/ directories in this pass, so I cannot make concrete claims about bugs there. In particular, the SDK's PDA derivation and the API server's auth/DB layer deserve the same scrutiny (e.g., confirm the SDK derives PDAs with the same seeds as deriveVaultPda, and that the API server validates ownership before proxying to the oracle). utils.ts:35-44 Due to index size limits some file contents may not be fully available here; for a complete line-by-line audit of every file (SDK, DB, dashboard, tests), a full-filesystem session would be needed.
+
+Read the sdk content and verify and give he full AUDIT, suggestions and features
+
+Thinking process (14 tools used)
+SDK audit for lib/sdk/src/*. I read all files (client.ts, oracle.ts, pda.ts, constants.ts, types.ts, idl.ts, index.ts) and cross-referenced them against the on-chain program and the oracle server.
+
+What's correct
+PDA derivation matches the on-chain seeds exactly — deriveEscrowPda uses "gig-escrow" + client + jobId and deriveVaultPda uses "vault" + client + jobId, identical to the program's seeds = [...]. pda.ts:9-23 lib.rs:111-118 The MAPPERS_PROGRAM_ID constant matches declare_id!. constants.ts:3-5 lib.rs:4 fetchEscrowsByClient uses memcmp offset 8, correctly skipping the 8-byte discriminator to match the first client field. client.ts:60-67 The OracleError wrapper and non-JSON handling in OracleClient.request are reasonable. oracle.ts:24-43
+
+Bugs / issues
+1. IDL format is legacy but Anchor is ^0.30.0 (High — likely breaks at runtime). package.json pins @coral-xyz/anchor ^0.30.0. package.json:9-11 Anchor 0.30+ requires the new IDL format (with discriminator arrays on instructions and accounts, metadata, and snake_case fields), and the new anchor.Program(idl, provider) two-arg constructor expects it. But idl.ts is the old 0.29-style IDL (isMut/isSigner, publicKey, defined: "JobStatus", no discriminators). idl.ts:5-19 Constructing the program this way will throw or fail to build account decoders. client.ts:27-28 The IDL should be regenerated with anchor build for 0.30.
+
+2. OracleClient cannot authenticate (High — functional). The oracle server's requireApiKey expects an x-api-key / Authorization header, but OracleClient.request only ever sends Content-Type: application/json and there is no constructor option for an API key. oracle.ts:13-22 Against a properly-secured oracle, every submitDeliverable call returns 401. The SDK is only usable against an unauthenticated (insecure) oracle.
+
+3. jobId length check counts UTF-16 units, not bytes (Medium). The SDK validates jobId.length > 32, but the on-chain check is job_id.len() <= 32 (UTF-8 bytes), and the PDA seed is Buffer.from(jobId) (bytes). client.ts:75-77 lib.rs:11 A jobId with multi-byte characters (accents, emoji) can pass the SDK check yet exceed 32 bytes, causing a confusing on-chain failure or a seed-length error. Validate Buffer.from(jobId).length.
+
+4. MINIMUM_ESCROW_LAMPORTS is declared but never enforced (Low). The constant exists but initializeJob performs no client-side amount check, so a too-small amount only fails on-chain via AmountBelowRentExemption. constants.ts:14 client.ts:72-98 Add an early check for a clearer error.
+
+5. No fetch timeout / abort (Medium). OracleClient.request awaits fetch with no AbortController or timeout, so a hung oracle blocks the caller indefinitely — the same class of issue as the oracle's un-timed AI calls. oracle.ts:17-22
+
+6. getJob is keyed by bare jobId (Medium — propagates the oracle collision bug). getJob(jobId) hits /jobs/{jobId}, inheriting the server-side (client, jobId) collision problem I flagged earlier; the SDK gives no way to disambiguate by client or escrow pubkey. oracle.ts:50-52
+
+7. Heavy as any casting erases type safety (Low). program.account as any and program.methods as any throughout client.ts defeat the compiler; a regenerated typed IDL would remove these and catch account-name/arg mismatches. client.ts:44-45 client.ts:86-96
+
+8. type: "module" + global fetch requires Node 18+ (Low). No runtime guard or polyfill; older Node or non-fetch environments will fail. oracle.ts:19 package.json:5
+
+Suggested fixes (priority)
+Regenerate idl.ts from anchor build (0.30 format with discriminators + metadata.address), and drop the manual { ...IDL, address } spread and the as any casts.
+Add an apiKey (and optional custom-headers) option to OracleClient, injecting x-api-key on every request.
+Change the initializeJob length guard to byte length; also validate amount >= MINIMUM_ESCROW_LAMPORTS client-side.
+Add a configurable timeout via AbortController in OracleClient.request.
+Expose escrow-pubkey / client-scoped lookups in OracleClient to avoid jobId collisions.
+
+Suggested features
+A refundAfterTimeout / dispute helper once the on-chain deadline instruction exists (ties into the availability gap from the program audit).
+Typed status guards already exist (isJobPending, etc.) — add convenience methods like waitForCompletion(escrowPubkey) that poll fetchEscrow. types.ts:11-21
+Event subscription helpers (once the program emits Anchor events) instead of polling.
+SPL-token support in initializeJob/params to mirror a token-escrow program extension.
+Retry/backoff wrapper in OracleClient for transient 5xx/network errors.
+
+Unknown / not verified
+GigEscrow::MAXIMUM_SPACE reserves only 4 + 32 for the job_id string, matching the 32-byte cap, so space is consistent. lib.rs:197-199 I did not verify whether the legacy-IDL/Anchor-0.30 mismatch is worked around elsewhere (e.g., a build step that overwrites idl.ts) since I did not read the SDK's build config or apps/* consumers — if a generated IDL is swapped in at build time, finding #1 may not manifest. I also did not read apps/api-server, apps/dashboard, lib/db, tests/, or scripts/, so those remain unaudited.
+
+Fully read and fully audit them too
+
+Thinking process
+I'll audit the remaining unaudited areas: apps/api-server, apps/dashboard, lib/db, tests/, and scripts/. Let me explore them in parallel.
+
+Thinking process (13 tools used)
+Now let me read the API server and DB files in parallel.
+
+Thinking process (9 tools used)
+Let me grab the zod schemas and dashboard essentials in one final batch.
+
+Thinking process (5 tools used)
+Audit of the remaining components: apps/api-server, lib/db, tests/, scripts/, apps/dashboard, and lib/api-zod.
+
+apps/api-server (Express + Drizzle proxy)
+This is a REST layer sitting in front of the oracle and Postgres. It validates all inputs with zod (safeParse) before touching the DB. jobs.ts:24-29
+
+Issues:
+
+1. No authentication on any route (High). None of the /jobs routes require an API key, session, or wallet signature. Anyone can POST /api/jobs to register arbitrary jobs, PATCH /api/jobs/:jobId to change status/txSig, or trigger /submit. jobs.ts:48-53 jobs.ts:97-103 The DB is a purely off-chain mirror, so this can't move funds directly, but it lets anyone corrupt the dashboard's view of job state (e.g. mark a pending job "completed").
+
+2. PATCH /jobs/:jobId lets a caller forge terminal state (Medium). status and txSig are writable with no verification against on-chain state, so the DB can diverge from reality. jobs.ts:111-120 There's no ownership check tying the caller to clientPubkey.
+
+3. Wide-open CORS (Medium). app.use(cors()) allows every origin with no allowlist — unlike the oracle, which uses a configured corsOptions. app.ts:28-30 Combined with the missing auth, any website can call this API from a victim's browser.
+
+4. No rate limiting or body-size cap. Unlike the oracle (express-rate-limit, 100 kb limit), this server applies neither, leaving it open to abuse and large-payload DoS. app.ts:29-30
+
+5. Oracle proxy forwards without the API key (High — functional). /jobs/:jobId/submit POSTs to ${ORACLE_URL}/submit with only Content-Type, no x-api-key. jobs.ts:150-154 Same defect as the SDK's OracleClient: against a secured oracle every submit returns 401. It also has no fetch timeout, so a hung oracle blocks the request.
+
+6. PORT-only startup, no graceful shutdown. Server throws if PORT is unset (good) but never closes the pg Pool or the HTTP server on SIGTERM/SIGINT. index.ts:4-16
+
+Positives: the global error handler returns a generic message (no stack leak), and the pino logger redacts authorization/cookie headers. app.ts:35-38 logger.ts:7-11
+
+lib/db (Drizzle + Postgres)
+Schema is clean: jobId is unique, amountLamports is stored as text to avoid JS 64-bit precision loss, and status is a proper pgEnum. jobs.ts:7-20 Drizzle's parameterized queries mean the raw sql template in /stats is not injectable. jobs.ts:191-195
+
+Issues:
+
+7. jobId is globally unique in the DB but not on-chain (Medium — data model mismatch). On-chain uniqueness is (client, jobId); the DB's .unique() on jobId alone means a second client reusing a jobId gets a DB insert failure (500, unhandled). jobs.ts:9 This is the same jobId-collision theme flagged in the oracle audit, surfacing here as a uniqueness constraint violation.
+
+8. No migrations checked for drift / no pooling limits. Pool is created with only a connection string — no max, timeouts, or SSL enforcement. index.ts:13
+
+tests/
+Coverage is reasonable for the happy paths and core authz: it verifies escrow creation/state, JobIdTooLong, InvalidAmount, AmountBelowRentExemption, oracle+client release, UnauthorizedExecution, double-spend on a closed account, and InvalidOracleAuthority on cancel. project_mappers.ts:71-105 project_mappers.ts:194-221
+
+Gaps:
+
+9. expectAnchorError with an empty string always passes (Medium — false confidence). The double-spend test passes "" as the expected error; assert.include(message, "") is true for any message, so this test would pass even if the second release succeeded with a different error. project_mappers.ts:247-262 helpers.ts:63-77
+
+10. All jobIds are UTF-8 ASCII in tests, so the SDK's UTF-16-vs-byte length bug (from the SDK audit) is never exercised. project_mappers.ts:42 There's also no test for the "no client-refund timeout" availability gap, because no such instruction exists.
+
+scripts/e2e-devnet.ts
+11. Submits to the oracle with no API key (consistent with the other clients). The e2e script POSTs to /submit with only Content-Type, so it only works against an unauthenticated oracle. e2e-devnet.ts:85-110
+
+12. Polls /jobs/{jobId} by bare jobId — inherits the oracle store's (client, jobId) collision issue, though for a Date.now()-suffixed test ID it's harmless in practice. e2e-devnet.ts:68-77 It correctly loads the IDL via oracle/idl.json (a generated file), which suggests the SDK's hand-written idl.ts may indeed be the stale one flagged in the SDK audit. e2e-devnet.ts:159-161
+
+apps/dashboard (React + Vite)
+I did a targeted scan rather than a full read of all ~70 files (most are shadcn/ui primitives). No dangerouslySetInnerHTML, eval, or innerHTML usage in application code — the only matches are in the vendored ui/chart.tsx. The wallet integration lives in wallet-provider.tsx/wallet-button.tsx and job logic in hooks/use-mappers-client.ts and the pages/* — I did not read these line by line, so I can't rule out client-side issues like unvalidated dangerous URL rendering or missing signature checks. I found no hardcoded secrets in the scanned set.
+
+Cross-cutting themes (all confirmed across every layer now)
+Missing/inconsistent oracle authentication — the oracle expects x-api-key, but the SDK OracleClient, the api-server proxy, and the e2e script all omit it. jobs.ts:150-154
+jobId treated as globally unique off-chain (oracle store, DB unique constraint, all lookup routes) while on-chain uniqueness is (client, jobId). jobs.ts:9
+No authorization binding callers to on-chain identities anywhere in the off-chain stack. jobs.ts:97-103
+No timeouts on outbound fetch in the SDK, api-server, and script. jobs.ts:150-155
+
+Suggested fixes (priority)
+Add authentication + ownership checks to apps/api-server (PATCH/POST/submit), verifying the caller controls clientPubkey (e.g. signed message), and restrict CORS to known origins.
+Add rate limiting, a body-size cap, and a fetch timeout to the api-server, mirroring the oracle's hardening.
+Forward the oracle API key from the api-server proxy and the SDK.
+Make the DB uniqueness (clientPubkey, jobId) and handle insert-conflict with a 409 instead of an unhandled 500.
+Fix the double-spend test to assert a real error string, and add a multibyte-jobId test.
+Add graceful shutdown + pg pool limits/SSL.
+
+Suggested features
+Reconcile off-chain DB with on-chain state via the oracle listener (write-through), so PATCH isn't the trust anchor.
+Webhook/SSE from api-server to dashboard for live job updates instead of polling.
+Wallet-signature auth flow in the dashboard tied to clientPubkey.
+OpenAPI-driven client generation (the lib/api-zod/src/generated/* already implies a spec-first setup) extended to enforce auth headers.

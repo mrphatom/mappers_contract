@@ -1,15 +1,16 @@
 import * as Sentry from "@sentry/node";
 import express, { Request, Response, NextFunction } from "express";
-import helmet from "helmet";
-import cors from "cors";
-import rateLimit from "express-rate-limit";
+import { createHash } from "crypto";
+import { PublicKey } from "@solana/web3.js";
+import nacl from "tweetnacl";
+import bs58 from "bs58";
+import { z } from "zod";
 import { config } from "./config";
 import { store } from "./store";
-import { startListener } from "./listener";
+import { backfillFromChain, startListener } from "./listener";
 import { runConsensus } from "./verification";
-import { releasePayment, cancelJob } from "./chain";
+import { releasePayment, cancelJob, fetchEscrow } from "./chain";
 import {
-  SubmitRequest,
   SubmitResponse,
   SubmissionArtifact,
   ConsensusOutcome,
@@ -19,52 +20,41 @@ import {
 
 if (config.sentry.enabled) {
   Sentry.init({
-    dsn:         config.sentry.dsn,
-    environment: config.isDev ? "development" : "production",
+    dsn:              config.sentry.dsn,
+    environment:      config.isDev ? "development" : "production",
     tracesSampleRate: 0.2,
   });
   console.log("[sentry] Error tracking initialized");
 }
 
+// ─── ZOD SCHEMAS ─────────────────────────────────────────────────────────────
+
+const SubmitBodySchema = z.object({
+  escrowPubkey:       z.string().min(32).max(44),
+  description:        z.string().min(1).max(10_000),
+  acceptanceCriteria: z.array(z.string().min(1)).min(1).max(20),
+  deliverable:        z.string().min(1).max(100_000),
+  deliverableType:    z.enum(["url", "ipfs", "text", "json"]),
+  signature:          z.string().min(1),   // base58 ed25519
+  timestamp:          z.number().int(),    // unix seconds
+});
+
 // ─── EXPRESS APP ─────────────────────────────────────────────────────────────
 
 const app = express();
-
-// ─── SECURITY MIDDLEWARE ──────────────────────────────────────────────────────
-
-app.use(helmet());
-
-const corsOptions: cors.CorsOptions = {
-  origin: config.server.corsOrigins
-    ? config.server.corsOrigins.split(",").map((o) => o.trim())
-    : false,
-  methods: ["GET", "POST"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-API-Key"],
-};
-app.use(cors(corsOptions));
-
 app.use(express.json({ limit: "100kb" }));
 
-const limiter = rateLimit({
-  windowMs: config.server.rateLimitWindowMs,
-  max:      config.server.rateLimitMax,
-  standardHeaders: true,
-  legacyHeaders:   false,
-  message: { error: "Too many requests. Please try again later." },
-});
-app.use(limiter);
-
-// ─── API KEY AUTH MIDDLEWARE ──────────────────────────────────────────────────
+// ─── API KEY MIDDLEWARE ───────────────────────────────────────────────────────
 
 function requireApiKey(req: Request, res: Response, next: NextFunction): void {
   if (!config.server.apiKey) {
+    // No key configured — only permitted in dev mode (bootstrap enforces this)
     next();
     return;
   }
-
-  const provided = req.headers["x-api-key"] ?? req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
-  if (!provided || provided !== config.server.apiKey) {
-    res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
+  const provided = req.headers["x-api-key"];
+  if (provided !== config.server.apiKey) {
+    res.status(401).json({ error: "Unauthorized" });
     return;
   }
   next();
@@ -74,17 +64,27 @@ function requireApiKey(req: Request, res: Response, next: NextFunction): void {
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
-    status:     "ok",
+    status:      "ok",
     pendingJobs: store.size(),
-    timestamp:  new Date().toISOString(),
+    timestamp:   new Date().toISOString(),
   });
 });
 
 // ─── GET JOB STATUS ───────────────────────────────────────────────────────────
 
-app.get("/jobs/:jobId", (req: Request, res: Response) => {
-  const { jobId } = req.params;
-  const job = store.get(jobId);
+app.get("/jobs/:escrowPubkey", requireApiKey, (req: Request, res: Response) => {
+  const { escrowPubkey } = req.params;
+
+  // Validate it looks like a base58 pubkey before looking up
+  let parsedPubkey: PublicKey;
+  try {
+    parsedPubkey = new PublicKey(escrowPubkey);
+  } catch {
+    res.status(400).json({ error: "Invalid escrow pubkey — must be a valid base58 Solana public key" });
+    return;
+  }
+
+  const job = store.get(parsedPubkey.toBase58());
 
   if (!job) {
     res.status(404).json({ error: "Job not found in oracle store" });
@@ -92,8 +92,8 @@ app.get("/jobs/:jobId", (req: Request, res: Response) => {
   }
 
   res.json({
-    jobId,
     escrowPubkey: job.escrowPubkey.toBase58(),
+    jobId:        job.escrow.jobId,
     client:       job.escrow.client.toBase58(),
     freelancer:   job.escrow.freelancer.toBase58(),
     amount:       job.escrow.amount.toString(),
@@ -104,92 +104,108 @@ app.get("/jobs/:jobId", (req: Request, res: Response) => {
 
 // ─── SUBMIT DELIVERABLE ───────────────────────────────────────────────────────
 
-app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
-  const body = req.body as SubmitRequest;
+const TIMESTAMP_DRIFT_LIMIT = 300; // seconds
 
-  // Basic input validation
-  if (
-    !body.jobId ||
-    !body.description ||
-    !Array.isArray(body.acceptanceCriteria) ||
-    body.acceptanceCriteria.length === 0 ||
-    !body.deliverable ||
-    !body.deliverableType
-  ) {
+app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
+  // 1. Schema validation
+  const parsed = SubmitBodySchema.safeParse(req.body);
+  if (!parsed.success) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId ?? "",
-      error:   "Missing required fields: jobId, description, acceptanceCriteria, deliverable, deliverableType",
+      escrowPubkey: req.body?.escrowPubkey ?? "",
+      error:   `Validation error: ${parsed.error.message}`,
     } satisfies SubmitResponse);
     return;
   }
 
-  const job = store.get(body.jobId);
+  const body = parsed.data;
+
+  // 2. Validate escrowPubkey is a real pubkey
+  let escrowKey: string;
+  try {
+    escrowKey = new PublicKey(body.escrowPubkey).toBase58();
+  } catch {
+    res.status(400).json({
+      success:      false,
+      escrowPubkey: body.escrowPubkey,
+      error:        "Invalid escrowPubkey — must be a valid base58 Solana public key",
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  // 3. Timestamp drift check (prevents signature replay)
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSeconds - body.timestamp) > TIMESTAMP_DRIFT_LIMIT) {
+    res.status(400).json({
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        `Timestamp drift too large (${Math.abs(nowSeconds - body.timestamp)}s > ${TIMESTAMP_DRIFT_LIMIT}s). Synchronize your clock and retry.`,
+    } satisfies SubmitResponse);
+    return;
+  }
+
+  // 4. Job lookup — must be in store and Pending
+  const job = store.get(escrowKey);
 
   if (!job) {
-    console.warn(`[submit] Job ${body.jobId} not found in oracle store`);
-
     res.status(404).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   "Job not found. Either the job does not exist, has already been resolved, or the oracle has not yet detected the on-chain event. If just initialized, wait a few seconds and retry.",
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        "Job not found. Either it doesn't exist, has been resolved, or the oracle hasn't detected it yet. Wait a few seconds and retry.",
     } satisfies SubmitResponse);
     return;
   }
 
   if (!("pending" in job.escrow.status)) {
     res.status(409).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   "Job is no longer in Pending state. It has already been resolved.",
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        "Job is no longer in Pending state — it has already been resolved.",
     } satisfies SubmitResponse);
     return;
   }
 
-  // Input length validation to prevent prompt injection and memory abuse
-  const MAX_DELIVERABLE_LENGTH = 50_000;
-  const MAX_DESCRIPTION_LENGTH = 5_000;
-  const MAX_CRITERIA_LENGTH    = 2_000;
+  // 5. Freelancer signature verification
+  //    Message: mappers-submit:{escrowPubkey}:{sha256Hex(deliverable)}:{timestamp}
+  const deliverableHash = createHash("sha256").update(body.deliverable).digest("hex");
+  const message         = `mappers-submit:${escrowKey}:${deliverableHash}:${body.timestamp}`;
+  const messageBytes    = Buffer.from(message);
 
-  if (body.deliverable.length > MAX_DELIVERABLE_LENGTH) {
+  let sigBytes: Buffer;
+  try {
+    sigBytes = Buffer.from(bs58.decode(body.signature));
+  } catch {
     res.status(400).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   `Deliverable exceeds maximum length of ${MAX_DELIVERABLE_LENGTH} characters`,
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        "Signature is not valid base58",
     } satisfies SubmitResponse);
     return;
   }
 
-  if (body.description.length > MAX_DESCRIPTION_LENGTH) {
-    res.status(400).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   `Description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters`,
+  const freelancerPubkeyBytes = job.escrow.freelancer.toBytes();
+  const isValid = nacl.sign.detached.verify(messageBytes, sigBytes, freelancerPubkeyBytes);
+  if (!isValid) {
+    res.status(403).json({
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        "Signature verification failed — submission must be signed by the on-chain freelancer",
     } satisfies SubmitResponse);
     return;
   }
 
-  if (body.acceptanceCriteria.some((c) => c.length > MAX_CRITERIA_LENGTH)) {
-    res.status(400).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   `Each acceptance criterion must be under ${MAX_CRITERIA_LENGTH} characters`,
-    } satisfies SubmitResponse);
-    return;
-  }
-
-  const VALID_DELIVERABLE_TYPES = ["url", "ipfs", "text", "json"] as const;
-  if (!VALID_DELIVERABLE_TYPES.includes(body.deliverableType as typeof VALID_DELIVERABLE_TYPES[number])) {
-    res.status(400).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   `Invalid deliverableType. Must be one of: ${VALID_DELIVERABLE_TYPES.join(", ")}`,
+  // 6. Per-job in-flight lock — prevent concurrent consensus runs for same escrow
+  if (!store.lock(escrowKey)) {
+    res.status(409).json({
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        "A verification is already in progress for this job. Retry once it completes.",
     } satisfies SubmitResponse);
     return;
   }
 
   const artifact: SubmissionArtifact = {
-    jobId:              body.jobId,
+    jobId:              job.escrow.jobId,
     description:        body.description,
     acceptanceCriteria: body.acceptanceCriteria,
     deliverable:        body.deliverable,
@@ -197,7 +213,7 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
     submittedAt:        Date.now(),
   };
 
-  console.log(`[submit] Starting verification for job: ${body.jobId}`);
+  console.log(`[submit] Starting verification for escrow: ${escrowKey} (job: ${job.escrow.jobId})`);
 
   let outcome: ConsensusOutcome;
   let txSig: string | undefined;
@@ -210,50 +226,50 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
 
     if (outcome === "RELEASE") {
       txSig = await releasePayment(job);
-      store.remove(body.jobId);
+      store.remove(escrowKey);
       console.log(`[submit] Payment released. tx: ${txSig}`);
 
     } else if (outcome === "REFUND") {
       txSig = await cancelJob(job);
-      store.remove(body.jobId);
+      store.remove(escrowKey);
       console.log(`[submit] Job cancelled, refund issued. tx: ${txSig}`);
 
     } else {
-      // ESCALATE — log for human review, do not execute on-chain
-      console.warn(`[submit] ESCALATE: Job ${body.jobId} requires human arbitration.`);
+      console.warn(`[submit] ESCALATE: Job ${escrowKey} requires human arbitration.`);
       console.warn(`         Gemini: ${result.geminiVerdict.verdict} (${result.geminiVerdict.confidence.toFixed(2)})`);
       console.warn(`         Claude: ${result.claudeVerdict.verdict} (${result.claudeVerdict.confidence.toFixed(2)})`);
 
       if (config.sentry.enabled) {
-        Sentry.captureMessage(`Oracle escalation: job ${body.jobId}`, {
+        Sentry.captureMessage(`Oracle escalation: escrow ${escrowKey}`, {
           level: "warning",
-          extra: { jobId: body.jobId, gemini: result.geminiVerdict, claude: result.claudeVerdict },
+          extra: { escrowKey, jobId: job.escrow.jobId, gemini: result.geminiVerdict, claude: result.claudeVerdict },
         });
       }
     }
 
     res.json({
-      success: true,
-      jobId:   body.jobId,
+      success:      true,
+      escrowPubkey: escrowKey,
       outcome,
       txSig,
     } satisfies SubmitResponse);
 
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[submit] Verification/execution error for job ${body.jobId}:`, message);
+    console.error(`[submit] Verification/execution error for escrow ${escrowKey}:`, message);
 
     if (config.sentry.enabled) {
       Sentry.captureException(err);
     }
 
     res.status(500).json({
-      success: false,
-      jobId:   body.jobId,
-      error:   config.isDev
-        ? `Internal oracle error: ${message}`
-        : "Internal oracle error. Please try again later.",
+      success:      false,
+      escrowPubkey: escrowKey,
+      error:        config.isDev ? `Internal oracle error: ${message}` : "Internal oracle error",
     } satisfies SubmitResponse);
+
+  } finally {
+    store.unlock(escrowKey);
   }
 });
 
@@ -268,29 +284,37 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 // ─── BOOTSTRAP ───────────────────────────────────────────────────────────────
 
-function bootstrap(): void {
-  // 1. Start gRPC listener — detects on-chain job events
+async function bootstrap(): Promise<void> {
+  // Fail-closed: refuse to start without an API key in non-development mode.
+  // Booting an unauthenticated fund-release endpoint in production is unsafe.
+  if (!config.isDev && !config.server.apiKey) {
+    console.error(
+      "[fatal] ORACLE_API_KEY must be set when NODE_ENV is not 'development'. " +
+      "Refusing to start an unauthenticated fund-release endpoint."
+    );
+    process.exit(1);
+  }
+
+  if (config.isDev && !config.server.apiKey) {
+    console.warn("[warn] ORACLE_API_KEY is not set — running unauthenticated (dev mode only)");
+  }
+
+  // 1. Backfill from chain before opening gRPC stream
+  await backfillFromChain();
+
+  // 2. Start gRPC listener — detects ongoing on-chain job events
   startListener();
 
-  // 2. Start HTTP server — receives freelancer submission triggers
-  const server = app.listen(config.server.port, () => {
-    const rpcHost = new URL(config.solana.rpcUrl).hostname;
+  // 3. Start HTTP server
+  app.listen(config.server.port, () => {
     console.log(`\n🟢 Mappers Oracle running`);
     console.log(`   HTTP server: http://localhost:${config.server.port}`);
     console.log(`   Program ID:  ${config.solana.programId}`);
-    console.log(`   Network:     ${rpcHost}\n`);
+    console.log(`   Network:     ${config.solana.rpcUrl}`);
+    console.log(`   Auth:        ${config.server.apiKey ? "ENABLED" : "DISABLED (dev)"}\n`);
   });
 
-  server.on("error", (err: NodeJS.ErrnoException) => {
-    if (err.code === "EADDRINUSE") {
-      console.error(`[oracle] Port ${config.server.port} is already in use. Exiting.`);
-    } else {
-      console.error(`[oracle] HTTP server error: ${err.message}`);
-    }
-    process.exit(1);
-  });
-
-  // 3. Graceful shutdown
+  // 4. Graceful shutdown
   process.on("SIGTERM", () => {
     console.log("[oracle] SIGTERM received. Shutting down gracefully.");
     process.exit(0);
@@ -303,24 +327,11 @@ function bootstrap(): void {
 
   process.on("unhandledRejection", (reason) => {
     console.error("[oracle] Unhandled rejection:", reason);
-    if (config.sentry.enabled) {
-      Sentry.captureException(reason);
-      // Flush Sentry events before exiting
-      void Sentry.flush(2000).finally(() => process.exit(1));
-    } else {
-      process.exit(1);
-    }
-  });
-
-  process.on("uncaughtException", (err) => {
-    console.error("[oracle] Uncaught exception:", err);
-    if (config.sentry.enabled) {
-      Sentry.captureException(err);
-      void Sentry.flush(2000).finally(() => process.exit(1));
-    } else {
-      process.exit(1);
-    }
+    if (config.sentry.enabled) Sentry.captureException(reason);
   });
 }
 
-bootstrap();
+bootstrap().catch((err) => {
+  console.error("[oracle] Bootstrap failed:", err);
+  process.exit(1);
+});

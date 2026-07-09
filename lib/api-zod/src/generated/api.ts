@@ -29,6 +29,7 @@ export const ListJobsQueryParams = zod.object({
 export const ListJobsResponseItem = zod.object({
   "id": zod.number(),
   "jobId": zod.string(),
+  "escrowPubkey": zod.string().describe('On-chain escrow account public key (base58)'),
   "clientPubkey": zod.string(),
   "freelancerPubkey": zod.string(),
   "oraclePubkey": zod.string(),
@@ -44,34 +45,38 @@ export const ListJobsResponse = zod.array(ListJobsResponseItem)
 
 
 /**
- * Cache an on-chain job in the database after initialization
+ * Cache an on-chain job in the database after initialization.
+ * The caller must prove they control clientPubkey by providing a signature
+ * over the canonical registration message.
  * @summary Register a job
  */
 export const createJobBodyJobIdMax = 32;
 
-
-
 export const CreateJobBody = zod.object({
   "jobId": zod.string().max(createJobBodyJobIdMax),
+  "escrowPubkey": zod.string().describe('On-chain escrow account public key (base58)'),
   "clientPubkey": zod.string(),
   "freelancerPubkey": zod.string(),
   "oraclePubkey": zod.string(),
   "amountLamports": zod.string(),
   "description": zod.string().optional(),
-  "acceptanceCriteria": zod.array(zod.string()).optional()
+  "acceptanceCriteria": zod.array(zod.string()).optional(),
+  "signature": zod.string().describe('Base58 ed25519 signature over mappers-register:{escrowPubkey}:{timestamp}'),
+  "timestamp": zod.number().int().describe('Unix seconds — server rejects if drift > 300s')
 })
 
 
 /**
- * @summary Get a job by jobId
+ * @summary Get a job by escrow pubkey
  */
 export const GetJobParams = zod.object({
-  "jobId": zod.coerce.string()
+  "escrowPubkey": zod.coerce.string()
 })
 
 export const GetJobResponse = zod.object({
   "id": zod.number(),
   "jobId": zod.string(),
+  "escrowPubkey": zod.string().describe('On-chain escrow account public key (base58)'),
   "clientPubkey": zod.string(),
   "freelancerPubkey": zod.string(),
   "oraclePubkey": zod.string(),
@@ -86,7 +91,7 @@ export const GetJobResponse = zod.object({
 
 
 /**
- * @summary Update job status or metadata
+ * @summary Update job status or metadata (requires X-Admin-Key header)
  */
 export const UpdateJobParams = zod.object({
   "jobId": zod.coerce.string()
@@ -101,6 +106,7 @@ export const UpdateJobBody = zod.object({
 export const UpdateJobResponse = zod.object({
   "id": zod.number(),
   "jobId": zod.string(),
+  "escrowPubkey": zod.string(),
   "clientPubkey": zod.string(),
   "freelancerPubkey": zod.string(),
   "oraclePubkey": zod.string(),
@@ -119,20 +125,22 @@ export const UpdateJobResponse = zod.object({
  * @summary Submit a deliverable for AI verification
  */
 export const SubmitDeliverableParams = zod.object({
-  "jobId": zod.coerce.string()
+  "escrowPubkey": zod.coerce.string()
 })
 
 export const SubmitDeliverableBody = zod.object({
   "description": zod.string(),
   "acceptanceCriteria": zod.array(zod.string()),
   "deliverable": zod.string(),
-  "deliverableType": zod.enum(['url', 'ipfs', 'text', 'json'])
+  "deliverableType": zod.enum(['url', 'ipfs', 'text', 'json']),
+  "signature": zod.string().describe('Base58 ed25519 signature (from the freelancer)'),
+  "timestamp": zod.number().int().describe('Unix seconds — server rejects if drift > 300s')
 })
 
 export const SubmitDeliverableResponse = zod.object({
   "success": zod.boolean(),
-  "jobId": zod.string(),
-  "outcome": zod.union([zod.literal('RELEASE'),zod.literal('REFUND'),zod.literal('ESCALATE'),zod.literal(null)]).nullable(),
+  "escrowPubkey": zod.string(),
+  "outcome": zod.union([zod.literal('RELEASE'), zod.literal('REFUND'), zod.literal('ESCALATE'), zod.literal(null)]).nullable(),
   "txSig": zod.string().nullable(),
   "error": zod.string().nullable()
 })
@@ -160,5 +168,3 @@ export const GetOracleHealthResponse = zod.object({
   "pendingJobs": zod.number(),
   "timestamp": zod.string()
 })
-
-

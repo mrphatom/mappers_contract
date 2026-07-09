@@ -8,12 +8,25 @@ import {
   SubmissionArtifact,
   StoredJob,
 } from "./types";
-import { toModelVerdict, ParsedModelResponse } from "./utils";
+import { toModelVerdict, ModelResponseSchema } from "./utils";
 
 // ─── CLIENTS ─────────────────────────────────────────────────────────────────
 
 const genAI     = new GoogleGenerativeAI(config.ai.geminiApiKey);
 const anthropic = new Anthropic({ apiKey: config.ai.anthropicApiKey });
+
+const AI_TIMEOUT_MS = 30_000; // 30 seconds per model call
+
+// ─── TIMEOUT HELPER ───────────────────────────────────────────────────────────
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms)
+    ),
+  ]);
+}
 
 // ─── PROMPT BUILDER ───────────────────────────────────────────────────────────
 
@@ -22,8 +35,6 @@ function buildVerificationPrompt(job: StoredJob, artifact: SubmissionArtifact): 
     .map((c, i) => `${i + 1}. ${c}`)
     .join("\n");
 
-  // Deliverable is wrapped in XML delimiters — treat as data, not instructions.
-  // This is the primary prompt injection defense.
   return `You are an autonomous task verification system evaluating a freelance work submission.
 
 Your role is to determine whether the submitted deliverable meets the stated acceptance criteria.
@@ -58,6 +69,28 @@ Respond ONLY with a valid JSON object in this exact schema. No preamble, no mark
 }`;
 }
 
+// ─── RESPONSE PARSER (schema-validated via zod) ────────────────────────────────
+
+function parseModelResponse(text: string): ReturnType<typeof ModelResponseSchema.parse> {
+  const clean = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(clean);
+  } catch {
+    throw new Error(`Model returned non-JSON response: ${clean.slice(0, 200)}`);
+  }
+
+  const result = ModelResponseSchema.safeParse(raw);
+  if (!result.success) {
+    throw new Error(
+      `Model response failed schema validation: ${result.error.message} | raw: ${clean.slice(0, 200)}`
+    );
+  }
+
+  return result.data;
+}
+
 // ─── GEMINI VERIFICATION ──────────────────────────────────────────────────────
 
 async function verifyWithGemini(
@@ -67,12 +100,14 @@ async function verifyWithGemini(
   const prompt = buildVerificationPrompt(job, artifact);
   const model  = genAI.getGenerativeModel({ model: config.ai.geminiModel });
 
+  const apiCall = model.generateContent({
+    contents:         [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
+  });
+
   let result;
   try {
-    result = await model.generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 1024 },
-    });
+    result = await withTimeout(apiCall, AI_TIMEOUT_MS, "Gemini");
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(`Gemini API call failed: ${message}`);
@@ -80,14 +115,10 @@ async function verifyWithGemini(
 
   const text = result.response.text()?.trim();
   if (!text) {
-    throw new Error(
-      "Gemini returned an empty response (possible safety filter or content block)"
-    );
+    throw new Error("Gemini returned an empty response (possible safety filter or content block)");
   }
 
-  const parsed = parseModelResponse(text);
-
-  return toModelVerdict(config.ai.geminiModel, parsed);
+  return toModelVerdict(config.ai.geminiModel, parseModelResponse(text));
 }
 
 // ─── CLAUDE VERIFICATION ──────────────────────────────────────────────────────
@@ -98,73 +129,38 @@ async function verifyWithClaude(
 ): Promise<ModelVerdict> {
   const prompt = buildVerificationPrompt(job, artifact);
 
+  const apiCall = anthropic.messages.create({
+    model:      config.ai.anthropicModel,
+    max_tokens: 1024,
+    messages:   [{ role: "user", content: prompt }],
+    system:
+      "You are an autonomous task verification oracle. You evaluate freelance deliverables against stated criteria. " +
+      "You must respond ONLY with a valid JSON object matching the requested schema. No other text.",
+  });
+
   let message;
   try {
-    message = await anthropic.messages.create({
-      model:      config.ai.anthropicModel,
-      max_tokens: 1024,
-      messages:   [{ role: "user", content: prompt }],
-      system:
-        "You are an autonomous task verification oracle. You evaluate freelance deliverables against stated criteria. " +
-        "You must respond ONLY with a valid JSON object matching the requested schema. No other text.",
-    });
+    message = await withTimeout(apiCall, AI_TIMEOUT_MS, "Claude");
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Claude API call failed: ${msg}`);
   }
 
   if (!message.content.length) {
-    throw new Error(
-      `Claude returned an empty response (stop_reason: ${message.stop_reason})`
-    );
+    throw new Error(`Claude returned an empty response (stop_reason: ${message.stop_reason})`);
   }
 
   const content = message.content[0];
   if (content.type !== "text") {
-    throw new Error(
-      `Unexpected Claude response content type: "${content.type}" (expected "text")`
-    );
+    throw new Error(`Unexpected Claude response content type: "${content.type}" (expected "text")`);
   }
 
-  const text   = content.text.trim();
+  const text = content.text.trim();
   if (!text) {
-    throw new Error(
-      `Claude returned a text block with no content (stop_reason: ${message.stop_reason})`
-    );
+    throw new Error(`Claude returned a text block with no content (stop_reason: ${message.stop_reason})`);
   }
 
-  const parsed = parseModelResponse(text);
-
-  return toModelVerdict(config.ai.anthropicModel, parsed);
-}
-
-// ─── RESPONSE PARSER ──────────────────────────────────────────────────────────
-
-function parseModelResponse(text: string): ParsedModelResponse {
-  // Strip any accidental markdown fences a model may emit despite instructions
-  const clean = text.replace(/^```json\s*/i, "").replace(/\s*```$/i, "").trim();
-
-  let parsed: ReturnType<typeof parseModelResponse>;
-  try {
-    parsed = JSON.parse(clean);
-  } catch {
-    throw new Error(`Model returned non-JSON response: ${clean.slice(0, 200)}`);
-  }
-
-  if (!["APPROVED", "REJECTED"].includes(parsed.verdict)) {
-    throw new Error(`Invalid verdict value: ${parsed.verdict}`);
-  }
-  if (typeof parsed.confidence !== "number" || parsed.confidence < 0 || parsed.confidence > 1) {
-    throw new Error(`Invalid confidence value: ${parsed.confidence}`);
-  }
-
-  return {
-    verdict:         parsed.verdict,
-    confidence:      parsed.confidence,
-    reasoning:       parsed.reasoning ?? "",
-    criteria_met:    Array.isArray(parsed.criteria_met)    ? parsed.criteria_met    : [],
-    criteria_failed: Array.isArray(parsed.criteria_failed) ? parsed.criteria_failed : [],
-  };
+  return toModelVerdict(config.ai.anthropicModel, parseModelResponse(text));
 }
 
 // ─── CONSENSUS ENGINE ─────────────────────────────────────────────────────────
@@ -173,8 +169,7 @@ function determineOutcome(
   gemini: ModelVerdict,
   claude: ModelVerdict
 ): { outcome: ConsensusOutcome; reasoning: string } {
-  const approvalThreshold  = config.ai.approvalThreshold;
-  const rejectionThreshold = config.ai.rejectionThreshold;
+  const { approvalThreshold, rejectionThreshold } = config.ai;
 
   const geminiApproved = gemini.verdict === "APPROVED" && gemini.confidence >= approvalThreshold;
   const claudeApproved = claude.verdict === "APPROVED" && claude.confidence >= approvalThreshold;
@@ -195,7 +190,6 @@ function determineOutcome(
     };
   }
 
-  // Divergent verdicts OR sub-threshold confidence → human arbitration
   return {
     outcome:   "ESCALATE",
     reasoning: `Verdict divergence or sub-threshold confidence. Gemini: ${gemini.verdict} (${gemini.confidence.toFixed(2)}), Claude: ${claude.verdict} (${claude.confidence.toFixed(2)}). Human arbitration required.`,
@@ -208,7 +202,6 @@ export async function runConsensus(
   job: StoredJob,
   artifact: SubmissionArtifact
 ): Promise<ConsensusResult> {
-  // Fire both models in parallel — no knowledge sharing between them
   const [geminiVerdict, claudeVerdict] = await Promise.all([
     verifyWithGemini(job, artifact),
     verifyWithClaude(job, artifact),

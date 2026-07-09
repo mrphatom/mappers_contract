@@ -12,6 +12,7 @@ export interface GigEscrow {
   status:      { pending?: Record<string, never> } | { completed?: Record<string, never> } | { cancelled?: Record<string, never> };
   escrowBump:  number;
   vaultBump:   number;
+  deadline:    BN; // i64 unix timestamp
 }
 
 // ─── ORACLE JOB STORE ────────────────────────────────────────────────────────
@@ -26,11 +27,11 @@ export interface StoredJob {
 
 export interface SubmissionArtifact {
   jobId:              string;
-  description:        string;         // Original job brief
-  acceptanceCriteria: string[];       // Criteria the deliverable must meet
-  deliverable:        string;         // URL, IPFS hash, text content, or JSON payload
+  description:        string;
+  acceptanceCriteria: string[];
+  deliverable:        string;
   deliverableType:    "url" | "ipfs" | "text" | "json";
-  submittedAt:        number;         // unix ms
+  submittedAt:        number;
 }
 
 // ─── AI VERIFICATION ─────────────────────────────────────────────────────────
@@ -38,38 +39,40 @@ export interface SubmissionArtifact {
 export type Verdict = "APPROVED" | "REJECTED";
 
 export interface ModelVerdict {
-  model:        string;
-  verdict:      Verdict;
-  confidence:   number;
-  reasoning:    string;
-  criteriaMet:  string[];
+  model:          string;
+  verdict:        Verdict;
+  confidence:     number;
+  reasoning:      string;
+  criteriaMet:    string[];
   criteriaFailed: string[];
 }
 
 export type ConsensusOutcome = "RELEASE" | "REFUND" | "ESCALATE";
 
 export interface ConsensusResult {
-  outcome:      ConsensusOutcome;
+  outcome:       ConsensusOutcome;
   geminiVerdict: ModelVerdict;
   claudeVerdict: ModelVerdict;
-  reasoning:    string;
-  processedAt:  number;
+  reasoning:     string;
+  processedAt:   number;
 }
 
 // ─── HTTP API ─────────────────────────────────────────────────────────────────
 
 export interface SubmitRequest {
-  jobId:              string;
+  escrowPubkey:       string;
   description:        string;
   acceptanceCriteria: string[];
   deliverable:        string;
   deliverableType:    SubmissionArtifact["deliverableType"];
+  signature:          string; // base58 ed25519 signature over the canonical message
+  timestamp:          number; // unix seconds; server rejects if drift > 300s
 }
 
 export interface SubmitResponse {
-  success:   boolean;
-  jobId:     string;
-  outcome?:  ConsensusOutcome;
-  txSig?:    string;
-  error?:    string;
+  success:      boolean;
+  escrowPubkey: string;
+  outcome?:     ConsensusOutcome;
+  txSig?:       string;
+  error?:       string;
 }

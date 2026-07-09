@@ -7,24 +7,19 @@ import { GigEscrow } from "../types";
 
 function makeEscrow(overrides: Partial<GigEscrow> = {}): GigEscrow {
   return {
-    client: PublicKey.default,
+    client:     PublicKey.default,
     freelancer: PublicKey.default,
-    oracle: PublicKey.default,
-    amount: new BN(2_000_000_000),
-    jobId: "test-job-001",
-    status: { pending: {} },
+    oracle:     PublicKey.default,
+    amount:     new BN(2_000_000_000),
+    jobId:      "test-job-001",
+    status:     { pending: {} },
     escrowBump: 255,
-    vaultBump: 254,
+    vaultBump:  254,
+    deadline:   new BN(Math.floor(Date.now() / 1000) + 7 * 86_400),
     ...overrides,
   };
 }
 
-// We need a fresh JobStore for each test. The module exports a singleton,
-// so we re-import to get the class and build our own instance.
-// store.ts exports a singleton `store`; we can still exercise it because the
-// underlying Map is cleared between tests via remove().
-
-// Instead, we'll import the singleton and clear it between tests.
 import { store } from "../store";
 
 // ─── TEST SUITE ───────────────────────────────────────────────────────────────
@@ -33,88 +28,77 @@ describe("JobStore", () => {
   const escrowPubkey = PublicKey.default;
 
   beforeEach(() => {
-    // Drain any leftover state from previous tests
+    // Drain pending entries. Store is now keyed by escrow pubkey (base58).
     for (const job of store.allPending()) {
-      store.remove(job.escrow.jobId);
-    }
-    // Also remove non-pending jobs that allPending wouldn't return
-    // We rely on size() to verify the store is empty
-    while (store.size() > 0) {
-      // This is a safety net; in practice allPending + remove covers it
-      break;
+      store.remove(job.escrowPubkey.toBase58());
     }
   });
 
   // ── upsert ────────────────────────────────────────────────────────────────
 
   describe("upsert", () => {
-    it("inserts a new job", () => {
-      const escrow = makeEscrow({ jobId: "job-upsert-1" });
-      store.upsert("job-upsert-1", escrowPubkey, escrow);
+    it("inserts a new job (keyed by escrow pubkey)", () => {
+      const pk  = PublicKey.default;
+      const key = pk.toBase58();
 
+      store.upsert(key, pk, makeEscrow({ jobId: "job-upsert-1" }));
       expect(store.size()).toBe(1);
-      const fetched = store.get("job-upsert-1");
+
+      const fetched = store.get(key);
       expect(fetched).toBeDefined();
       expect(fetched!.escrow.jobId).toBe("job-upsert-1");
-      expect(fetched!.escrowPubkey.equals(escrowPubkey)).toBe(true);
+      expect(fetched!.escrowPubkey.equals(pk)).toBe(true);
 
-      // Clean up
-      store.remove("job-upsert-1");
+      store.remove(key);
     });
 
     it("preserves original detectedAt on re-upsert", async () => {
-      const escrow = makeEscrow({ jobId: "job-upsert-2" });
-      store.upsert("job-upsert-2", escrowPubkey, escrow);
-      const firstDetectedAt = store.get("job-upsert-2")!.detectedAt;
+      const key = PublicKey.default.toBase58();
 
-      // Small delay to ensure Date.now() differs
+      store.upsert(key, escrowPubkey, makeEscrow({ jobId: "job-upsert-2" }));
+      const firstDetectedAt = store.get(key)!.detectedAt;
+
       await new Promise((r) => setTimeout(r, 5));
 
-      const updatedEscrow = makeEscrow({
-        jobId: "job-upsert-2",
-        amount: new BN(5_000_000_000),
-      });
-      store.upsert("job-upsert-2", escrowPubkey, updatedEscrow);
+      store.upsert(key, escrowPubkey, makeEscrow({ jobId: "job-upsert-2", amount: new BN(5_000_000_000) }));
 
-      const secondDetectedAt = store.get("job-upsert-2")!.detectedAt;
-      expect(secondDetectedAt).toBe(firstDetectedAt);
-      expect(store.get("job-upsert-2")!.escrow.amount.toString()).toBe(
-        "5000000000"
-      );
+      expect(store.get(key)!.detectedAt).toBe(firstDetectedAt);
+      expect(store.get(key)!.escrow.amount.toString()).toBe("5000000000");
 
-      store.remove("job-upsert-2");
+      store.remove(key);
     });
 
     it("sets detectedAt to Date.now() for new entries", () => {
+      const key = PublicKey.default.toBase58();
+
       const before = Date.now();
-      const escrow = makeEscrow({ jobId: "job-upsert-3" });
-      store.upsert("job-upsert-3", escrowPubkey, escrow);
+      store.upsert(key, escrowPubkey, makeEscrow({ jobId: "job-upsert-3" }));
       const after = Date.now();
 
-      const detectedAt = store.get("job-upsert-3")!.detectedAt;
+      const { detectedAt } = store.get(key)!;
       expect(detectedAt).toBeGreaterThanOrEqual(before);
       expect(detectedAt).toBeLessThanOrEqual(after);
 
-      store.remove("job-upsert-3");
+      store.remove(key);
     });
   });
 
   // ── get ────────────────────────────────────────────────────────────────────
 
   describe("get", () => {
-    it("returns undefined for non-existent job", () => {
+    it("returns undefined for non-existent key", () => {
       expect(store.get("nonexistent")).toBeUndefined();
     });
 
     it("returns the stored job when present", () => {
-      const escrow = makeEscrow({ jobId: "job-get-1" });
-      store.upsert("job-get-1", escrowPubkey, escrow);
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow({ jobId: "job-get-1" }));
 
-      const result = store.get("job-get-1");
+      const result = store.get(key);
       expect(result).toBeDefined();
       expect(result!.escrow.jobId).toBe("job-get-1");
 
-      store.remove("job-get-1");
+      store.remove(key);
     });
   });
 
@@ -122,15 +106,16 @@ describe("JobStore", () => {
 
   describe("remove", () => {
     it("removes an existing job", () => {
-      store.upsert("job-rm-1", escrowPubkey, makeEscrow({ jobId: "job-rm-1" }));
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow({ jobId: "job-rm-1" }));
       expect(store.size()).toBe(1);
 
-      store.remove("job-rm-1");
+      store.remove(key);
       expect(store.size()).toBe(0);
-      expect(store.get("job-rm-1")).toBeUndefined();
+      expect(store.get(key)).toBeUndefined();
     });
 
-    it("is a no-op for non-existent job", () => {
+    it("is a no-op for non-existent key", () => {
       store.remove("does-not-exist");
       expect(store.size()).toBe(0);
     });
@@ -139,38 +124,60 @@ describe("JobStore", () => {
   // ── hasPending ────────────────────────────────────────────────────────────
 
   describe("hasPending", () => {
-    it("returns true for a job with pending status", () => {
-      store.upsert(
-        "job-hp-1",
-        escrowPubkey,
-        makeEscrow({ jobId: "job-hp-1", status: { pending: {} } })
-      );
-      expect(store.hasPending("job-hp-1")).toBe(true);
-      store.remove("job-hp-1");
+    it("returns true for a pending job", () => {
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow({ status: { pending: {} } }));
+      expect(store.hasPending(key)).toBe(true);
+      store.remove(key);
     });
 
     it("returns false for a completed job", () => {
-      store.upsert(
-        "job-hp-2",
-        escrowPubkey,
-        makeEscrow({ jobId: "job-hp-2", status: { completed: {} } })
-      );
-      expect(store.hasPending("job-hp-2")).toBe(false);
-      store.remove("job-hp-2");
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow({ status: { completed: {} } }));
+      expect(store.hasPending(key)).toBe(false);
+      store.remove(key);
     });
 
     it("returns false for a cancelled job", () => {
-      store.upsert(
-        "job-hp-3",
-        escrowPubkey,
-        makeEscrow({ jobId: "job-hp-3", status: { cancelled: {} } })
-      );
-      expect(store.hasPending("job-hp-3")).toBe(false);
-      store.remove("job-hp-3");
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow({ status: { cancelled: {} } }));
+      expect(store.hasPending(key)).toBe(false);
+      store.remove(key);
     });
 
-    it("returns false for non-existent job", () => {
+    it("returns false for non-existent key", () => {
       expect(store.hasPending("nope")).toBe(false);
+    });
+  });
+
+  // ── lock / unlock ──────────────────────────────────────────────────────────
+
+  describe("lock / unlock", () => {
+    it("acquires lock when key is free", () => {
+      expect(store.lock("lock-a")).toBe(true);
+      store.unlock("lock-a");
+    });
+
+    it("rejects a second lock attempt while still locked", () => {
+      expect(store.lock("lock-b")).toBe(true);
+      expect(store.lock("lock-b")).toBe(false);
+      store.unlock("lock-b");
+    });
+
+    it("allows re-lock after unlock", () => {
+      store.lock("lock-c");
+      store.unlock("lock-c");
+      expect(store.lock("lock-c")).toBe(true);
+      store.unlock("lock-c");
+    });
+
+    it("remove clears the lock too", () => {
+      const key = PublicKey.default.toBase58();
+      store.upsert(key, escrowPubkey, makeEscrow());
+      store.lock(key);
+      store.remove(key);           // should clear job + lock
+      expect(store.lock(key)).toBe(true); // can now acquire
+      store.unlock(key);
     });
   });
 
@@ -178,40 +185,24 @@ describe("JobStore", () => {
 
   describe("allPending", () => {
     it("returns only pending jobs", () => {
-      store.upsert(
-        "ap-1",
-        escrowPubkey,
-        makeEscrow({ jobId: "ap-1", status: { pending: {} } })
-      );
-      store.upsert(
-        "ap-2",
-        escrowPubkey,
-        makeEscrow({ jobId: "ap-2", status: { completed: {} } })
-      );
-      store.upsert(
-        "ap-3",
-        escrowPubkey,
-        makeEscrow({ jobId: "ap-3", status: { pending: {} } })
-      );
+      const keys = ["ap-key-1", "ap-key-2", "ap-key-3"];
+      store.upsert(keys[0], escrowPubkey, makeEscrow({ jobId: "ap-1", status: { pending: {}   } }));
+      store.upsert(keys[1], escrowPubkey, makeEscrow({ jobId: "ap-2", status: { completed: {} } }));
+      store.upsert(keys[2], escrowPubkey, makeEscrow({ jobId: "ap-3", status: { pending: {}   } }));
 
       const pending = store.allPending();
       expect(pending).toHaveLength(2);
       const ids = pending.map((j) => j.escrow.jobId).sort();
       expect(ids).toEqual(["ap-1", "ap-3"]);
 
-      store.remove("ap-1");
-      store.remove("ap-2");
-      store.remove("ap-3");
+      for (const k of keys) store.remove(k);
     });
 
     it("returns empty array when no pending jobs exist", () => {
-      store.upsert(
-        "ap-4",
-        escrowPubkey,
-        makeEscrow({ jobId: "ap-4", status: { completed: {} } })
-      );
+      const key = "ap-completed-key";
+      store.upsert(key, escrowPubkey, makeEscrow({ status: { completed: {} } }));
       expect(store.allPending()).toHaveLength(0);
-      store.remove("ap-4");
+      store.remove(key);
     });
   });
 
@@ -223,16 +214,8 @@ describe("JobStore", () => {
     });
 
     it("reflects total count including non-pending jobs", () => {
-      store.upsert(
-        "sz-1",
-        escrowPubkey,
-        makeEscrow({ jobId: "sz-1", status: { pending: {} } })
-      );
-      store.upsert(
-        "sz-2",
-        escrowPubkey,
-        makeEscrow({ jobId: "sz-2", status: { completed: {} } })
-      );
+      store.upsert("sz-1", escrowPubkey, makeEscrow({ status: { pending: {}   } }));
+      store.upsert("sz-2", escrowPubkey, makeEscrow({ status: { completed: {} } }));
       expect(store.size()).toBe(2);
 
       store.remove("sz-1");

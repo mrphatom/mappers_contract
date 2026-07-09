@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { BorshCoder } from "@coral-xyz/anchor";
 import Client, {
   CommitmentLevel,
@@ -13,59 +13,77 @@ const idl    = require("../idl.json");
 const coder  = new BorshCoder(idl);
 
 const PROGRAM_ID     = new PublicKey(config.solana.programId);
-const RECONNECT_BASE = 2_000;  // ms
-const RECONNECT_MAX  = 60_000; // ms
+const RECONNECT_BASE = 2_000;
+const RECONNECT_MAX  = 60_000;
 
 // ─── ACCOUNT DECODER ─────────────────────────────────────────────────────────
 
 function tryDecodeGigEscrow(data: Buffer): GigEscrow | null {
   try {
     return coder.accounts.decode<GigEscrow>("GigEscrow", data);
-  } catch (err: unknown) {
-    // Accounts with fewer than 8 bytes or a non-matching discriminator are
-    // expected (non-GigEscrow program accounts). Only log when the buffer
-    // *looks* like it should decode (8-byte discriminator present, size
-    // roughly matches) to surface real deserialization bugs.
-    if (data.length >= 151) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[listener] Failed to decode GigEscrow from ${data.length}-byte account: ${message}`
-      );
-    }
+  } catch {
     return null;
   }
 }
 
 // ─── ACCOUNT UPDATE HANDLER ───────────────────────────────────────────────────
 
-function handleAccountUpdate(update: SubscribeUpdate["account"]): void {
-  if (!update?.account) return;
-
-  const { pubkey: pubkeyBytes, data: dataBytes } = update.account;
-
+function handleAccountUpdate(
+  pubkeyBytes: Uint8Array,
+  dataBytes: Uint8Array
+): void {
   const pubkey = new PublicKey(Buffer.from(pubkeyBytes));
   const data   = Buffer.from(dataBytes);
-
   const escrow = tryDecodeGigEscrow(data);
   if (!escrow) return;
 
-  const jobId = escrow.jobId;
+  const escrowKey = pubkey.toBase58(); // keyed by escrow pubkey, not bare jobId
 
   if ("pending" in escrow.status) {
-    // New or re-detected pending job
-    if (!store.hasPending(jobId)) {
-      console.log(`[listener] New pending job detected: ${jobId} | escrow: ${pubkey.toBase58()}`);
+    if (!store.hasPending(escrowKey)) {
+      console.log(`[listener] New pending job detected: ${escrow.jobId} | escrow: ${escrowKey}`);
     }
-    store.upsert(jobId, pubkey, escrow);
+    store.upsert(escrowKey, pubkey, escrow);
     return;
   }
 
-  // Job resolved on-chain — remove from store
   if ("completed" in escrow.status || "cancelled" in escrow.status) {
     const status = "completed" in escrow.status ? "COMPLETED" : "CANCELLED";
-    console.log(`[listener] Job ${jobId} resolved: ${status} — removing from store`);
-    store.remove(jobId);
+    console.log(`[listener] Job ${escrow.jobId} resolved: ${status} — removing from store`);
+    store.remove(escrowKey);
   }
+}
+
+// ─── STARTUP BACKFILL ─────────────────────────────────────────────────────────
+//
+// Before opening the gRPC stream, do one getProgramAccounts call to seed the
+// store with all currently-Pending jobs. Without this backfill, a restart makes
+// the oracle blind to jobs that already existed on-chain.
+
+export async function backfillFromChain(): Promise<void> {
+  const connection = new Connection(config.solana.rpcUrl, "confirmed");
+  console.log("[listener] Backfilling pending jobs from chain...");
+
+  let accounts: Awaited<ReturnType<typeof connection.getProgramAccounts>>;
+  try {
+    accounts = await connection.getProgramAccounts(PROGRAM_ID);
+  } catch (err) {
+    console.error("[listener] Backfill failed — getProgramAccounts error:", err);
+    return;
+  }
+
+  let seeded = 0;
+  for (const { pubkey, account } of accounts) {
+    const escrow = tryDecodeGigEscrow(account.data);
+    if (!escrow) continue;
+    if (!("pending" in escrow.status)) continue;
+
+    const escrowKey = pubkey.toBase58();
+    store.upsert(escrowKey, pubkey, escrow);
+    seeded++;
+  }
+
+  console.log(`[listener] Backfill complete — seeded ${seeded} pending job(s)`);
 }
 
 // ─── GRPC SUBSCRIPTION ───────────────────────────────────────────────────────
@@ -74,7 +92,7 @@ async function startSubscription(attempt: number = 0): Promise<void> {
   const client = new Client(
     config.helius.grpcEndpoint,
     config.helius.apiKey,
-    { "grpc.max_receive_message_length": 64 * 1024 * 1024 } // 64MB
+    { "grpc.max_receive_message_length": 64 * 1024 * 1024 }
   );
 
   try {
@@ -92,17 +110,12 @@ async function startSubscription(attempt: number = 0): Promise<void> {
       });
 
       stream.on("data", (data: SubscribeUpdate) => {
-        if (data.account) {
-          try {
-            handleAccountUpdate(data.account);
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : String(err);
-            console.error(`[listener] Error processing account update: ${message}`);
-          }
+        if (data.account?.account) {
+          const { pubkey, data: accountData } = data.account.account;
+          handleAccountUpdate(pubkey, accountData);
         }
       });
 
-      // Subscribe to all accounts owned by the Mappers program
       stream.write(
         {
           accounts: {
@@ -133,17 +146,13 @@ async function startSubscription(attempt: number = 0): Promise<void> {
         }
       );
     });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
+  } catch (err) {
     const delay = Math.min(RECONNECT_BASE * 2 ** attempt, RECONNECT_MAX);
-    console.error(
-      `[listener] Connection failed (attempt ${attempt + 1}): ${message}. Reconnecting in ${delay}ms...`
-    );
+    console.error(`[listener] Connection failed. Reconnecting in ${delay}ms... (attempt ${attempt + 1})`);
     await new Promise((r) => setTimeout(r, delay));
     return startSubscription(attempt + 1);
   }
 
-  // Stream ended cleanly — reconnect
   const delay = Math.min(RECONNECT_BASE * 2 ** attempt, RECONNECT_MAX);
   console.log(`[listener] Reconnecting in ${delay}ms...`);
   await new Promise((r) => setTimeout(r, delay));
@@ -154,7 +163,6 @@ async function startSubscription(attempt: number = 0): Promise<void> {
 
 export function startListener(): void {
   console.log("[listener] Starting Helius gRPC listener...");
-  // Non-blocking — run as background async loop
   startSubscription(0).catch((err) => {
     console.error("[listener] Fatal unhandled error:", err);
     process.exit(1);

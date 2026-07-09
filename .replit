@@ -1,0 +1,3 @@
+modules = ["nodejs-20"]
+[agent]
+expertMode = true
