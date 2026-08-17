@@ -340,8 +340,7 @@ describe("project_mappers", () => {
             })
             .signers([oracle])
             .rpc(),
-        "", // Account is closed — Anchor throws AccountNotInitialized or similar
-        "Should have failed on closed account",
+        "AccountNotInitialized",
       );
     });
   });
