@@ -78,7 +78,7 @@ async function startSubscription(attempt: number = 0): Promise<void> {
   const client = new Client(
     config.helius.grpcEndpoint,
     config.helius.apiKey,
-    { "grpc.max_receive_message_length": 64 * 1024 * 1024 }, // 64MB
+    {},
   );
 
   try {
