@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/oracle"
     schedule:
       interval: "weekly"
       day: "monday"
@@ -10,13 +12,6 @@ updates:
       workspace-deps:
         patterns:
           - "*"
-
-  - package-ecosystem: "npm"
-    directory: "/oracle"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 5
 
   - package-ecosystem: "cargo"
     directory: "/programs/project_mappers"
