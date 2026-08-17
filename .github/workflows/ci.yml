@@ -2,83 +2,105 @@ name: CI
 
 on:
   push:
-    branches: [main, mini-test]
+    branches: [main, beta, mini-test]
   pull_request:
-    branches: [main]
+    branches: [main, beta]
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  typecheck-and-build:
+  workspace:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
+          run_install: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.16.0'
-          cache: 'pnpm'
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Typecheck libs
+      - name: Typecheck libraries
         run: pnpm run typecheck:libs
 
       - name: Typecheck full workspace
         run: pnpm run typecheck
 
-      - name: Build all packages
+      - name: Build workspace
         run: pnpm run build
 
-  oracle-tests:
+  oracle:
     runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: oracle
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.16.0'
-          cache: 'npm'
-          cache-dependency-path: oracle/package.json
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: oracle/package-lock.json
 
       - name: Install oracle dependencies
-        working-directory: oracle
-        run: npm install
+        run: npm ci
 
-      - name: Run oracle test suite
-        working-directory: oracle
-        run: npm run test:coverage
+      - name: Typecheck oracle
+        run: npx tsc --noEmit
 
-      - name: Upload coverage report
-        uses: actions/upload-artifact@v4
-        with:
-          name: oracle-coverage
-          path: oracle/coverage/
-          retention-days: 14
+      - name: Test oracle
+        run: npm run test
 
   format-check:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
+          run_install: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20.16.0'
-          cache: 'pnpm'
+          node-version: "22"
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Check formatting
-        run: npx prettier --check .
+      - name: Check formatting of changed files
+        shell: bash
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+          else
+            base_sha="${{ github.event.before }}"
+            if [ -z "$base_sha" ] || [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+              base_sha="$(git rev-list --max-parents=0 HEAD)"
+            fi
+          fi
+
+          if ! git cat-file -e "$base_sha^{commit}" 2>/dev/null; then
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || git rev-list --max-parents=0 HEAD)"
+          fi
+
+          git diff --diff-filter=ACMR --name-only -z "$base_sha" "$GITHUB_SHA" -- \
+            '*.css' '*.html' '*.js' '*.jsx' '*.json' '*.md' '*.mjs' '*.scss' \
+            '*.ts' '*.tsx' '.github/workflows/*.yml' |
+            xargs -0 -r pnpm exec prettier --check

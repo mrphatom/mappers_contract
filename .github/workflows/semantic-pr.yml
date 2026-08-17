@@ -3,12 +3,16 @@ name: Semantic PR Title
 on:
   pull_request_target:
     types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [main, beta]
 
 permissions:
+  contents: read
   pull-requests: read
 
 jobs:
   check-title:
+    if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-22.04
     steps:
       - uses: amannn/action-semantic-pull-request@v5
@@ -28,6 +32,20 @@ jobs:
             chore
             security
           requireScope: false
-          subjectPattern: ^(?![A-Z]).+$
+          subjectPattern: ^(?![A-Z]).+
           subjectPatternError: |
             The PR title's subject shouldn't start with an uppercase letter.
+
+  check-commit:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate commit subject
+        shell: bash
+        run: |
+          subject="$(git log -1 --pretty=%s)"
+          if ! printf '%s\n' "$subject" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|security)(\([^)]+\))?: [^A-Z].+'; then
+            echo "Commit subject is not semantic: $subject" >&2
+            exit 1
+          fi

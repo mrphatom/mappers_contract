@@ -2,24 +2,38 @@ name: CodeQL
 
 on:
   push:
-    branches: [main]
+    branches: [main, beta]
   pull_request:
-    branches: [main]
+    branches: [main, beta]
   schedule:
-    - cron: '0 8 * * 3'  # weekly, Wednesday
+    - cron: "0 8 * * 3"
+
+permissions:
+  security-events: write
+  actions: read
+  contents: read
 
 jobs:
   analyze:
     runs-on: ubuntu-22.04
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
     strategy:
       matrix:
-        language: ['javascript-typescript']
+        language: [javascript-typescript]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          run_install: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -27,8 +41,8 @@ jobs:
           languages: ${{ matrix.language }}
           queries: security-extended
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+      - name: Build workspace
+        run: pnpm run build
 
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v3

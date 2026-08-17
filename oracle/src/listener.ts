@@ -9,12 +9,12 @@ import { store } from "./store";
 import { GigEscrow } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const idl    = require("../idl.json");
-const coder  = new BorshCoder(idl);
+const idl = require("../idl.json");
+const coder = new BorshCoder(idl);
 
-const PROGRAM_ID     = new PublicKey(config.solana.programId);
-const RECONNECT_BASE = 2_000;  // ms
-const RECONNECT_MAX  = 60_000; // ms
+const PROGRAM_ID = new PublicKey(config.solana.programId);
+const RECONNECT_BASE = 2_000; // ms
+const RECONNECT_MAX = 60_000; // ms
 
 // ─── ACCOUNT DECODER ─────────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ function tryDecodeGigEscrow(data: Buffer): GigEscrow | null {
     if (data.length >= 151) {
       const message = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[listener] Failed to decode GigEscrow from ${data.length}-byte account: ${message}`
+        `[listener] Failed to decode GigEscrow from ${data.length}-byte account: ${message}`,
       );
     }
     return null;
@@ -44,7 +44,7 @@ function handleAccountUpdate(update: SubscribeUpdate["account"]): void {
   const { pubkey: pubkeyBytes, data: dataBytes } = update.account;
 
   const pubkey = new PublicKey(Buffer.from(pubkeyBytes));
-  const data   = Buffer.from(dataBytes);
+  const data = Buffer.from(dataBytes);
 
   const escrow = tryDecodeGigEscrow(data);
   if (!escrow) return;
@@ -54,7 +54,9 @@ function handleAccountUpdate(update: SubscribeUpdate["account"]): void {
   if ("pending" in escrow.status) {
     // New or re-detected pending job
     if (!store.hasPending(jobId)) {
-      console.log(`[listener] New pending job detected: ${jobId} | escrow: ${pubkey.toBase58()}`);
+      console.log(
+        `[listener] New pending job detected: ${jobId} | escrow: ${pubkey.toBase58()}`,
+      );
     }
     store.upsert(jobId, pubkey, escrow);
     return;
@@ -63,7 +65,9 @@ function handleAccountUpdate(update: SubscribeUpdate["account"]): void {
   // Job resolved on-chain — remove from store
   if ("completed" in escrow.status || "cancelled" in escrow.status) {
     const status = "completed" in escrow.status ? "COMPLETED" : "CANCELLED";
-    console.log(`[listener] Job ${jobId} resolved: ${status} — removing from store`);
+    console.log(
+      `[listener] Job ${jobId} resolved: ${status} — removing from store`,
+    );
     store.remove(jobId);
   }
 }
@@ -74,7 +78,7 @@ async function startSubscription(attempt: number = 0): Promise<void> {
   const client = new Client(
     config.helius.grpcEndpoint,
     config.helius.apiKey,
-    { "grpc.max_receive_message_length": 64 * 1024 * 1024 } // 64MB
+    { "grpc.max_receive_message_length": 64 * 1024 * 1024 }, // 64MB
   );
 
   try {
@@ -97,7 +101,9 @@ async function startSubscription(attempt: number = 0): Promise<void> {
             handleAccountUpdate(data.account);
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
-            console.error(`[listener] Error processing account update: ${message}`);
+            console.error(
+              `[listener] Error processing account update: ${message}`,
+            );
           }
         }
       });
@@ -108,36 +114,40 @@ async function startSubscription(attempt: number = 0): Promise<void> {
           accounts: {
             "mappers-program": {
               account: [],
-              owner:   [PROGRAM_ID.toBase58()],
+              owner: [PROGRAM_ID.toBase58()],
               filters: [],
             },
           },
-          slots:             {},
-          transactions:      {},
-          blocks:            {},
-          blocksMeta:        {},
-          entry:             {},
+          slots: {},
+          transactions: {},
+          transactionsStatus: {},
+          blocks: {},
+          blocksMeta: {},
+          entry: {},
           accountsDataSlice: [],
-          commitment:        CommitmentLevel.CONFIRMED,
-          ping:              undefined,
+          commitment: CommitmentLevel.CONFIRMED,
+          ping: undefined,
         },
-        (err) => {
+        (err: Error | null | undefined) => {
           if (err) {
-            console.error("[listener] Failed to write subscription request:", err);
+            console.error(
+              "[listener] Failed to write subscription request:",
+              err,
+            );
             reject(err);
           } else {
             console.log(
-              `[listener] gRPC subscription active — watching program: ${PROGRAM_ID.toBase58()}`
+              `[listener] gRPC subscription active — watching program: ${PROGRAM_ID.toBase58()}`,
             );
           }
-        }
+        },
       );
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     const delay = Math.min(RECONNECT_BASE * 2 ** attempt, RECONNECT_MAX);
     console.error(
-      `[listener] Connection failed (attempt ${attempt + 1}): ${message}. Reconnecting in ${delay}ms...`
+      `[listener] Connection failed (attempt ${attempt + 1}): ${message}. Reconnecting in ${delay}ms...`,
     );
     await new Promise((r) => setTimeout(r, delay));
     return startSubscription(attempt + 1);

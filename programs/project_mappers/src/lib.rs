@@ -191,13 +191,21 @@ pub struct InitializeJob<'info> {
         init,
         payer = client,
         space = GigEscrow::MAXIMUM_SPACE,
-        seeds = [b"gig-escrow", client.key().as_ref(), job_id.as_bytes()],
+        seeds = [
+            b"gig-escrow",
+            client.key().as_ref(),
+            &job_id.as_bytes()[..std::cmp::min(job_id.len(), 32)],
+        ],
         bump
     )]
     pub escrow_account: Account<'info, GigEscrow>,
     #[account(
         mut,
-        seeds = [b"vault", client.key().as_ref(), job_id.as_bytes()],
+        seeds = [
+            b"vault",
+            client.key().as_ref(),
+            &job_id.as_bytes()[..std::cmp::min(job_id.len(), 32)],
+        ],
         bump
     )]
     /// CHECK: Lamport-only system-owned PDA. Bump stored on escrow.

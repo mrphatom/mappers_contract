@@ -7,8 +7,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.0",
-    "@solana/web3.js": "^1.95.0"
+    "@coral-xyz/anchor": "^0.30.1",
+    "@solana/web3.js": "^1.98.4",
+    "bs58": "^6.0.0",
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/node": "catalog:"
