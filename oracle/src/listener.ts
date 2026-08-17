@@ -9,12 +9,12 @@ import { store } from "./store";
 import { GigEscrow } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const idl    = require("../idl.json");
-const coder  = new BorshCoder(idl);
+const idl = require("../idl.json");
+const coder = new BorshCoder(idl);
 
-const PROGRAM_ID     = new PublicKey(config.solana.programId);
+const PROGRAM_ID = new PublicKey(config.solana.programId);
 const RECONNECT_BASE = 2_000;
-const RECONNECT_MAX  = 60_000;
+const RECONNECT_MAX = 60_000;
 
 // ─── ACCOUNT DECODER ─────────────────────────────────────────────────────────
 
@@ -30,10 +30,10 @@ function tryDecodeGigEscrow(data: Buffer): GigEscrow | null {
 
 function handleAccountUpdate(
   pubkeyBytes: Uint8Array,
-  dataBytes: Uint8Array
+  dataBytes: Uint8Array,
 ): void {
   const pubkey = new PublicKey(Buffer.from(pubkeyBytes));
-  const data   = Buffer.from(dataBytes);
+  const data = Buffer.from(dataBytes);
   const escrow = tryDecodeGigEscrow(data);
   if (!escrow) return;
 
@@ -41,7 +41,9 @@ function handleAccountUpdate(
 
   if ("pending" in escrow.status) {
     if (!store.hasPending(escrowKey)) {
-      console.log(`[listener] New pending job detected: ${escrow.jobId} | escrow: ${escrowKey}`);
+      console.log(
+        `[listener] New pending job detected: ${escrow.jobId} | escrow: ${escrowKey}`,
+      );
     }
     store.upsert(escrowKey, pubkey, escrow);
     return;
@@ -49,7 +51,9 @@ function handleAccountUpdate(
 
   if ("completed" in escrow.status || "cancelled" in escrow.status) {
     const status = "completed" in escrow.status ? "COMPLETED" : "CANCELLED";
-    console.log(`[listener] Job ${escrow.jobId} resolved: ${status} — removing from store`);
+    console.log(
+      `[listener] Job ${escrow.jobId} resolved: ${status} — removing from store`,
+    );
     store.remove(escrowKey);
   }
 }
@@ -68,7 +72,10 @@ export async function backfillFromChain(): Promise<void> {
   try {
     accounts = await connection.getProgramAccounts(PROGRAM_ID);
   } catch (err) {
-    console.error("[listener] Backfill failed — getProgramAccounts error:", err);
+    console.error(
+      "[listener] Backfill failed — getProgramAccounts error:",
+      err,
+    );
     return;
   }
 
@@ -89,11 +96,9 @@ export async function backfillFromChain(): Promise<void> {
 // ─── GRPC SUBSCRIPTION ───────────────────────────────────────────────────────
 
 async function startSubscription(attempt: number = 0): Promise<void> {
-  const client = new Client(
-    config.helius.grpcEndpoint,
-    config.helius.apiKey,
-    { "grpc.max_receive_message_length": 64 * 1024 * 1024 }
-  );
+  const client = new Client(config.helius.grpcEndpoint, config.helius.apiKey, {
+    "grpc.max_receive_message_length": 64 * 1024 * 1024,
+  });
 
   try {
     const stream = await client.subscribe();
@@ -121,34 +126,40 @@ async function startSubscription(attempt: number = 0): Promise<void> {
           accounts: {
             "mappers-program": {
               account: [],
-              owner:   [PROGRAM_ID.toBase58()],
+              owner: [PROGRAM_ID.toBase58()],
               filters: [],
             },
           },
-          slots:             {},
-          transactions:      {},
-          blocks:            {},
-          blocksMeta:        {},
-          entry:             {},
+          slots: {},
+          transactions: {},
+          transactionsStatus: {},
+          blocks: {},
+          blocksMeta: {},
+          entry: {},
           accountsDataSlice: [],
-          commitment:        CommitmentLevel.CONFIRMED,
-          ping:              undefined,
+          commitment: CommitmentLevel.CONFIRMED,
+          ping: undefined,
         },
-        (err) => {
+        (err: Error | null | undefined) => {
           if (err) {
-            console.error("[listener] Failed to write subscription request:", err);
+            console.error(
+              "[listener] Failed to write subscription request:",
+              err,
+            );
             reject(err);
           } else {
             console.log(
-              `[listener] gRPC subscription active — watching program: ${PROGRAM_ID.toBase58()}`
+              `[listener] gRPC subscription active — watching program: ${PROGRAM_ID.toBase58()}`,
             );
           }
-        }
+        },
       );
     });
   } catch (err) {
     const delay = Math.min(RECONNECT_BASE * 2 ** attempt, RECONNECT_MAX);
-    console.error(`[listener] Connection failed. Reconnecting in ${delay}ms... (attempt ${attempt + 1})`);
+    console.error(
+      `[listener] Connection failed. Reconnecting in ${delay}ms... (attempt ${attempt + 1})`,
+    );
     await new Promise((r) => setTimeout(r, delay));
     return startSubscription(attempt + 1);
   }
