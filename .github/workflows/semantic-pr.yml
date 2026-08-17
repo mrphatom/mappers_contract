@@ -15,7 +15,13 @@ jobs:
     if: github.event_name == 'pull_request_target'
     runs-on: ubuntu-22.04
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
+      - name: Accept Dependabot-generated title
+        if: github.event.pull_request.user.login == 'dependabot[bot]'
+        run: echo "Dependabot-generated title accepted"
+
+      - name: Validate conventional title
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
+        uses: amannn/action-semantic-pull-request@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

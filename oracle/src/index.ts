@@ -19,7 +19,7 @@ import {
 
 if (config.sentry.enabled) {
   Sentry.init({
-    dsn:         config.sentry.dsn,
+    dsn: config.sentry.dsn,
     environment: config.isDev ? "development" : "production",
     tracesSampleRate: 0.2,
   });
@@ -47,9 +47,9 @@ app.use(express.json({ limit: "100kb" }));
 
 const limiter = rateLimit({
   windowMs: config.server.rateLimitWindowMs,
-  max:      config.server.rateLimitMax,
+  max: config.server.rateLimitMax,
   standardHeaders: true,
-  legacyHeaders:   false,
+  legacyHeaders: false,
   message: { error: "Too many requests. Please try again later." },
 });
 app.use(limiter);
@@ -62,7 +62,9 @@ function requireApiKey(req: Request, res: Response, next: NextFunction): void {
     return;
   }
 
-  const provided = req.headers["x-api-key"] ?? req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
+  const provided =
+    req.headers["x-api-key"] ??
+    req.headers["authorization"]?.replace(/^Bearer\s+/i, "");
   if (!provided || provided !== config.server.apiKey) {
     res.status(401).json({ error: "Unauthorized: invalid or missing API key" });
     return;
@@ -74,16 +76,17 @@ function requireApiKey(req: Request, res: Response, next: NextFunction): void {
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
-    status:     "ok",
+    status: "ok",
     pendingJobs: store.size(),
-    timestamp:  new Date().toISOString(),
+    timestamp: new Date().toISOString(),
   });
 });
 
 // ─── GET JOB STATUS ───────────────────────────────────────────────────────────
 
 app.get("/jobs/:jobId", (req: Request, res: Response) => {
-  const { jobId } = req.params;
+  const rawJobId = req.params.jobId;
+  const jobId = Array.isArray(rawJobId) ? rawJobId[0] : rawJobId;
   const job = store.get(jobId);
 
   if (!job) {
@@ -94,11 +97,11 @@ app.get("/jobs/:jobId", (req: Request, res: Response) => {
   res.json({
     jobId,
     escrowPubkey: job.escrowPubkey.toBase58(),
-    client:       job.escrow.client.toBase58(),
-    freelancer:   job.escrow.freelancer.toBase58(),
-    amount:       job.escrow.amount.toString(),
-    status:       job.escrow.status,
-    detectedAt:   job.detectedAt,
+    client: job.escrow.client.toBase58(),
+    freelancer: job.escrow.freelancer.toBase58(),
+    amount: job.escrow.amount.toString(),
+    status: job.escrow.status,
+    detectedAt: job.detectedAt,
   });
 });
 
@@ -118,8 +121,9 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   ) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId ?? "",
-      error:   "Missing required fields: jobId, description, acceptanceCriteria, deliverable, deliverableType",
+      jobId: body.jobId ?? "",
+      error:
+        "Missing required fields: jobId, description, acceptanceCriteria, deliverable, deliverableType",
     } satisfies SubmitResponse);
     return;
   }
@@ -131,8 +135,9 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
 
     res.status(404).json({
       success: false,
-      jobId:   body.jobId,
-      error:   "Job not found. Either the job does not exist, has already been resolved, or the oracle has not yet detected the on-chain event. If just initialized, wait a few seconds and retry.",
+      jobId: body.jobId,
+      error:
+        "Job not found. Either the job does not exist, has already been resolved, or the oracle has not yet detected the on-chain event. If just initialized, wait a few seconds and retry.",
     } satisfies SubmitResponse);
     return;
   }
@@ -140,8 +145,8 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   if (!("pending" in job.escrow.status)) {
     res.status(409).json({
       success: false,
-      jobId:   body.jobId,
-      error:   "Job is no longer in Pending state. It has already been resolved.",
+      jobId: body.jobId,
+      error: "Job is no longer in Pending state. It has already been resolved.",
     } satisfies SubmitResponse);
     return;
   }
@@ -149,13 +154,13 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   // Input length validation to prevent prompt injection and memory abuse
   const MAX_DELIVERABLE_LENGTH = 50_000;
   const MAX_DESCRIPTION_LENGTH = 5_000;
-  const MAX_CRITERIA_LENGTH    = 2_000;
+  const MAX_CRITERIA_LENGTH = 2_000;
 
   if (body.deliverable.length > MAX_DELIVERABLE_LENGTH) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId,
-      error:   `Deliverable exceeds maximum length of ${MAX_DELIVERABLE_LENGTH} characters`,
+      jobId: body.jobId,
+      error: `Deliverable exceeds maximum length of ${MAX_DELIVERABLE_LENGTH} characters`,
     } satisfies SubmitResponse);
     return;
   }
@@ -163,8 +168,8 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   if (body.description.length > MAX_DESCRIPTION_LENGTH) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId,
-      error:   `Description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters`,
+      jobId: body.jobId,
+      error: `Description exceeds maximum length of ${MAX_DESCRIPTION_LENGTH} characters`,
     } satisfies SubmitResponse);
     return;
   }
@@ -172,29 +177,33 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
   if (body.acceptanceCriteria.some((c) => c.length > MAX_CRITERIA_LENGTH)) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId,
-      error:   `Each acceptance criterion must be under ${MAX_CRITERIA_LENGTH} characters`,
+      jobId: body.jobId,
+      error: `Each acceptance criterion must be under ${MAX_CRITERIA_LENGTH} characters`,
     } satisfies SubmitResponse);
     return;
   }
 
   const VALID_DELIVERABLE_TYPES = ["url", "ipfs", "text", "json"] as const;
-  if (!VALID_DELIVERABLE_TYPES.includes(body.deliverableType as typeof VALID_DELIVERABLE_TYPES[number])) {
+  if (
+    !VALID_DELIVERABLE_TYPES.includes(
+      body.deliverableType as (typeof VALID_DELIVERABLE_TYPES)[number],
+    )
+  ) {
     res.status(400).json({
       success: false,
-      jobId:   body.jobId,
-      error:   `Invalid deliverableType. Must be one of: ${VALID_DELIVERABLE_TYPES.join(", ")}`,
+      jobId: body.jobId,
+      error: `Invalid deliverableType. Must be one of: ${VALID_DELIVERABLE_TYPES.join(", ")}`,
     } satisfies SubmitResponse);
     return;
   }
 
   const artifact: SubmissionArtifact = {
-    jobId:              body.jobId,
-    description:        body.description,
+    jobId: body.jobId,
+    description: body.description,
     acceptanceCriteria: body.acceptanceCriteria,
-    deliverable:        body.deliverable,
-    deliverableType:    body.deliverableType,
-    submittedAt:        Date.now(),
+    deliverable: body.deliverable,
+    deliverableType: body.deliverableType,
+    submittedAt: Date.now(),
   };
 
   console.log(`[submit] Starting verification for job: ${body.jobId}`);
@@ -212,36 +221,46 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
       txSig = await releasePayment(job);
       store.remove(body.jobId);
       console.log(`[submit] Payment released. tx: ${txSig}`);
-
     } else if (outcome === "REFUND") {
       txSig = await cancelJob(job);
       store.remove(body.jobId);
       console.log(`[submit] Job cancelled, refund issued. tx: ${txSig}`);
-
     } else {
       // ESCALATE — log for human review, do not execute on-chain
-      console.warn(`[submit] ESCALATE: Job ${body.jobId} requires human arbitration.`);
-      console.warn(`         Gemini: ${result.geminiVerdict.verdict} (${result.geminiVerdict.confidence.toFixed(2)})`);
-      console.warn(`         Claude: ${result.claudeVerdict.verdict} (${result.claudeVerdict.confidence.toFixed(2)})`);
+      console.warn(
+        `[submit] ESCALATE: Job ${body.jobId} requires human arbitration.`,
+      );
+      console.warn(
+        `         Gemini: ${result.geminiVerdict.verdict} (${result.geminiVerdict.confidence.toFixed(2)})`,
+      );
+      console.warn(
+        `         Claude: ${result.claudeVerdict.verdict} (${result.claudeVerdict.confidence.toFixed(2)})`,
+      );
 
       if (config.sentry.enabled) {
         Sentry.captureMessage(`Oracle escalation: job ${body.jobId}`, {
           level: "warning",
-          extra: { jobId: body.jobId, gemini: result.geminiVerdict, claude: result.claudeVerdict },
+          extra: {
+            jobId: body.jobId,
+            gemini: result.geminiVerdict,
+            claude: result.claudeVerdict,
+          },
         });
       }
     }
 
     res.json({
       success: true,
-      jobId:   body.jobId,
+      jobId: body.jobId,
       outcome,
       txSig,
     } satisfies SubmitResponse);
-
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[submit] Verification/execution error for job ${body.jobId}:`, message);
+    console.error(
+      `[submit] Verification/execution error for job ${body.jobId}:`,
+      message,
+    );
 
     if (config.sentry.enabled) {
       Sentry.captureException(err);
@@ -249,8 +268,8 @@ app.post("/submit", requireApiKey, async (req: Request, res: Response) => {
 
     res.status(500).json({
       success: false,
-      jobId:   body.jobId,
-      error:   config.isDev
+      jobId: body.jobId,
+      error: config.isDev
         ? `Internal oracle error: ${message}`
         : "Internal oracle error. Please try again later.",
     } satisfies SubmitResponse);
@@ -283,7 +302,9 @@ function bootstrap(): void {
 
   server.on("error", (err: NodeJS.ErrnoException) => {
     if (err.code === "EADDRINUSE") {
-      console.error(`[oracle] Port ${config.server.port} is already in use. Exiting.`);
+      console.error(
+        `[oracle] Port ${config.server.port} is already in use. Exiting.`,
+      );
     } else {
       console.error(`[oracle] HTTP server error: ${err.message}`);
     }
