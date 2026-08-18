@@ -23,7 +23,7 @@ jobs:
   anchor-build-test:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: metadaoproject/setup-anchor@v3.3
         with:
