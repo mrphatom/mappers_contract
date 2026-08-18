@@ -43,11 +43,13 @@ Tracks job lifecycle state and holds client funds inside dual Program Derived Ad
 Mappers uses **two separate PDAs per job**:
 
 **GigEscrow Account** — stores job metadata and lifecycle state.
+
 ```
 seeds = ["gig-escrow", client_pubkey, job_id]
 ```
 
 **Vault Account** — a data-less, System Program-owned account holding locked SOL.
+
 ```
 seeds = ["vault", client_pubkey, job_id]
 ```
@@ -74,11 +76,11 @@ pub struct GigEscrow {
 
 ### Instruction Set
 
-| Instruction | Caller | Effect |
-|---|---|---|
-| `initialize_job(job_id, amount)` | Client | Validates inputs, derives PDAs, transfers SOL to vault, sets status to `Pending`. |
-| `release_payment()` | Client or Oracle | Validates `Pending` status, transfers vault balance to freelancer, closes escrow (rent returned to client). |
-| `cancel_job()` | Oracle only | Validates `Pending` status, refunds vault to client, closes escrow. |
+| Instruction                      | Caller           | Effect                                                                                                      |
+| -------------------------------- | ---------------- | ----------------------------------------------------------------------------------------------------------- |
+| `initialize_job(job_id, amount)` | Client           | Validates inputs, derives PDAs, transfers SOL to vault, sets status to `Pending`.                           |
+| `release_payment()`              | Client or Oracle | Validates `Pending` status, transfers vault balance to freelancer, closes escrow (rent returned to client). |
+| `cancel_job()`                   | Oracle only      | Validates `Pending` status, refunds vault to client, closes escrow.                                         |
 
 ---
 
@@ -87,6 +89,7 @@ pub struct GigEscrow {
 A persistent off-chain service that bridges on-chain events to the AI verification pipeline.
 
 **Event Detection** — Maintains a gRPC subscription to Helius, streaming all transactions that touch the Mappers program ID. On detecting an `InitializeJob` event:
+
 1. Deserializes the GigEscrow account using the program IDL.
 2. Extracts job metadata (job_id, freelancer, oracle, amount).
 3. Stores a pending verification record.
@@ -94,6 +97,7 @@ A persistent off-chain service that bridges on-chain events to the AI verificati
 **Artifact Ingestion** — When a freelancer submits a deliverable (URL, IPFS hash, text, or JSON), the oracle retrieves it and packages a verification request containing the original job description, acceptance criteria, and the deliverable content.
 
 **Endpoints:**
+
 ```
 GET  /health      — liveness + pending job count
 GET  /jobs/:jobId — tracked job state
@@ -104,7 +108,7 @@ POST /submit      — trigger AI verification
 
 ## Layer 3 — Dual-Model AI Consensus Loop
 
-Manus AI Pro orchestrates verification requests to both Gemini and Claude in parallel, with no knowledge sharing between models.
+The Oracle middleware dispatches verification requests to Gemini and Claude in parallel, with no knowledge sharing between models. The service owns request validation, artifact handling, consensus evaluation, and settlement authorization; it does not treat either model as a trusted authority by itself.
 
 ### Verdict Schema (per model)
 
@@ -120,12 +124,12 @@ Manus AI Pro orchestrates verification requests to both Gemini and Claude in par
 
 ### Consensus Resolution
 
-| Gemini | Claude | Outcome |
-|---|---|---|
+| Gemini             | Claude             | Outcome                             |
+| ------------------ | ------------------ | ----------------------------------- |
 | APPROVED (>= 0.80) | APPROVED (>= 0.80) | `release_payment` — freelancer paid |
-| REJECTED (>= 0.75) | REJECTED (>= 0.75) | `cancel_job` — client refunded |
-| Divergent | -- | Escalate to human arbitration |
-| Sub-threshold | -- | Escalate to human arbitration |
+| REJECTED (>= 0.75) | REJECTED (>= 0.75) | `cancel_job` — client refunded      |
+| Divergent          | --                 | Escalate to human arbitration       |
+| Sub-threshold      | --                 | Escalate to human arbitration       |
 
 ### Why Two Models
 
@@ -179,6 +183,7 @@ lib/api-spec          (OpenAPI spec, generates code for:)
   |-- lib/api-zod     (Zod schemas for request/response validation)
   |-- lib/api-client-react  (TanStack Query hooks + custom fetch)
 
+oracle               (workspace package: event listener, verification, and settlement bridge)
 lib/db                (Drizzle schema + PostgreSQL connection)
 lib/sdk               (MappersClient + OracleClient)
 
@@ -207,12 +212,14 @@ Code generation flows from `lib/api-spec` (via [orval](https://orval.dev/)) into
 ## Trust Model
 
 **What is trustless:**
+
 - Client funds cannot be moved by anyone other than the oracle or the client.
 - The oracle cannot redirect funds to any address other than the stored freelancer or client.
 - Completed escrows are fully settled — no state can be reopened post-resolution.
 - All state transitions are publicly auditable on-chain.
 
 **Trust assumptions:**
+
 - **Oracle key security** — A compromised oracle key could arbitrarily release or cancel. Mitigation: multisig-controlled key in production.
 - **AI model correctness** — Models can be wrong or manipulated. Mitigations: dual-model consensus + human arbitration fallback.
 - **Artifact integrity** — Artifacts are ingested off-chain; tampering before reaching the oracle is an attack surface.

@@ -1,88 +1,65 @@
 # Mappers Protocol
 
-> Autonomous, on-chain freelance settlement infrastructure — powered by cross-validated AI oracles on Solana.
+> On-chain freelance settlement infrastructure for Solana, combining programmable escrow with an off-chain dual-model verification oracle.
 
-Mappers is a decentralized escrow protocol that replaces platform intermediaries with programmable trust. Client funds are locked in on-chain vaults and released automatically when an AI oracle consensus loop confirms the freelancer's deliverable meets acceptance criteria. No approvals, no platform fees, no counterparty risk.
+Mappers is an open-source decentralized escrow protocol for freelance and milestone-based work. Client funds are locked in deterministic Solana vault accounts and released or refunded through explicit on-chain state transitions. The Oracle middleware observes jobs, evaluates submitted artifacts through independent Gemini and Claude verdicts, and signs a settlement transaction only when the configured consensus policy is satisfied.
+
+**Current release:** [v0.1.0](https://github.com/mrphatom/mappers_contract/releases/tag/v0.1.0)
 
 **Program ID (Devnet):** `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu`
 
----
+## Start Here
 
-## Pages
-
-- **[Overview](Home.md)** — what Mappers is and the problems it solves (this page).
-- **[Architecture](Architecture.md)** — the three protocol layers, PDA design, state machine, and security model.
-- **[Getting Started](Getting-Started.md)** — prerequisites, running the full stack, and API reference.
-- **[Glossary](Glossary.md)** — definitions of every protocol term, account, role, and error code.
-
----
-
-## Why Mappers Exists
-
-The global freelance economy processes over $1.5 trillion in annual contract labor, yet the infrastructure that settles those agreements remains fundamentally broken:
-
-- **Platform intermediaries extract disproportionate value.** Upwork, Fiverr, and Toptal charge 5-20% of gross contract value, primarily to provide a trust layer. A smart contract can hold funds with stronger guarantees and release them on programmable conditions.
-- **Dispute resolution is slow, expensive, and arbitrary.** Human reviewers take days or weeks. Freelancers go unpaid while client funds sit in limbo.
-- **Permissioned infrastructure creates fragility.** Reputation is non-portable. Payment history is siloed. Five years of delivery history on one platform means nothing on another.
-
-The historical blocker to on-chain settlement is that verifying "work was done" is a real-world judgment call that blockchains cannot make natively. Mappers solves this with an AI oracle consensus layer.
-
----
+| Page                                      | Purpose                                                               |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| [Architecture](Architecture.md)           | System layers, PDA design, state machine, and trust model             |
+| [Getting Started](Getting-Started.md)     | Install the workspace, run services, and execute validation           |
+| [Development Guide](Development-Guide.md) | Contributing, code generation, database, Anchor, and Oracle workflows |
+| [Release Notes](Release-Notes.md)         | v0.1.0 baseline and future release history                            |
+| [Glossary](Glossary.md)                   | Protocol accounts, roles, states, and error codes                     |
 
 ## The Mappers Solution
 
-Three components work together to eliminate the need for a trusted intermediary:
+Three protocol components work together. The **Anchor escrow program** holds client funds in separate GigEscrow and Vault PDAs, validates job lifecycle transitions, and performs settlement. The **Oracle middleware** is a Node.js workspace package that listens to Helius Yellowstone gRPC events, tracks submissions, and bridges artifacts to verification models. The **API and dashboard** provide job management, persistence, operator visibility, and typed client access.
 
-1. **On-Chain Escrow Engine** — A gas-optimized Anchor program that holds client funds in deterministic PDA vaults, enforces job lifecycle state transitions, and executes programmatic token releases.
-
-2. **Oracle Middleware** — An off-chain Node.js microservice that monitors on-chain events via Helius gRPC streaming, ingests freelancer submission artifacts, and bridges them to the AI verification pipeline.
-
-3. **Dual-Model AI Consensus Loop** — Two independent LLMs (Gemini and Claude) cross-validate deliverable quality in parallel. Funds move only when both reach structured consensus above confidence thresholds. Disagreements escalate to human arbitration.
-
-Together these layers create settlement infrastructure that is faster, cheaper, and more consistent than any human arbitration system.
-
----
-
-## Design Principles
-
-- **No protocol fees (v1).** All deposited lamports flow directly to the intended recipient. Rent paid at initialization is returned in full on account close.
-- **No protocol token.** All settlement is in native SOL, avoiding liquidity fragmentation and speculative dynamics.
-- **Public, composable infrastructure.** The escrow engine, oracle middleware, and shared libraries are open-source. Any task marketplace, DAO payment system, or bounty protocol can integrate without rebuilding the trust layer.
-
----
+The Oracle’s autonomous settlement policy uses independent Gemini and Claude verdicts. Agreement above the configured confidence thresholds can authorize payment or refund; divergent or sub-threshold verdicts remain eligible for human arbitration. The protocol does not claim that model output is infallible, so the fallback path is part of the trust model rather than an afterthought.
 
 ## Current State
 
-The protocol is implemented as a **pnpm workspace monorepo** with the following components:
+Mappers is implemented as a pnpm 11 workspace monorepo with one authoritative root lockfile. The following status reflects the v0.1.0 repository baseline:
 
-| Component | Location | Status |
-|---|---|---|
-| Escrow smart contract | `programs/project_mappers/` | Live on Devnet |
-| Oracle middleware | `oracle/` | Functional |
-| REST API server | `apps/api-server/` | Functional |
-| React dashboard | `apps/dashboard/` | Functional |
-| TypeScript SDK | `lib/sdk/` | Functional |
-| Database layer | `lib/db/` | Functional |
-| Shared schemas | `lib/api-zod/`, `lib/api-spec/` | Functional |
-| React query hooks | `lib/api-client-react/` | Functional |
+| Component             | Location                        | Status                                    |
+| --------------------- | ------------------------------- | ----------------------------------------- |
+| Escrow smart contract | `programs/project_mappers/`     | Deployed on Devnet                        |
+| Oracle middleware     | `oracle/`                       | Workspace package; typechecked and tested |
+| REST API server       | `apps/api-server/`              | Functional                                |
+| React dashboard       | `apps/dashboard/`               | Functional                                |
+| TypeScript SDK        | `lib/sdk/`                      | Functional                                |
+| Database layer        | `lib/db/`                       | Drizzle schema and migrations             |
+| Shared API schemas    | `lib/api-zod/`, `lib/api-spec/` | Generated and type-safe                   |
+| React query client    | `lib/api-client-react/`         | Generated hooks                           |
+| CI/CD                 | `.github/workflows/`            | Required gates passing on `main`          |
 
----
+## Design Principles
+
+Mappers v0.1.0 is designed around three principles. Funds should move through explicit on-chain rules rather than platform-held balances. The escrow engine should be reusable by marketplaces, DAOs, and bounty systems. Model-assisted verification should be treated as an observable, replaceable oracle component with an explicit human-arbitration fallback.
+
+The protocol does not currently issue a token, charge a protocol fee, or claim mainnet deployment. The only live program deployment documented here is Devnet.
 
 ## Roadmap
 
-- [x] Production-grade escrow contract with dual PDA architecture
-- [x] Security audit — critical bump bug resolved, rent-lock prevention, compute optimizations
-- [x] Devnet deployment
-- [x] Oracle middleware — Helius gRPC listener, Gemini + Claude consensus pipeline
-- [x] TypeScript SDK (`@mappers-protocol/sdk`)
-- [x] REST API server (Express 5 + Drizzle ORM)
-- [x] React dashboard (Vite + TanStack Query)
-- [x] Shared workspace libraries (db, api-zod, api-spec, api-client-react)
-- [ ] End-to-end integration test suite
-- [ ] Mainnet-Beta launch
+| Milestone                                                      | Status                       |
+| -------------------------------------------------------------- | ---------------------------- |
+| Dual-PDA Anchor escrow program                                 | Complete                     |
+| Devnet deployment                                              | Complete                     |
+| Oracle streaming and dual-model verification                   | Complete for v0.1.0 baseline |
+| TypeScript SDK and shared API libraries                        | Complete for v0.1.0 baseline |
+| Express API and React dashboard                                | Complete for v0.1.0 baseline |
+| Root workspace CI, security, CodeQL, DCO, and Dependabot gates | Complete for v0.1.0 baseline |
+| Production Oracle key management and operational runbooks      | Planned                      |
+| Broader end-to-end Devnet demonstrations                       | Planned                      |
+| Mainnet-Beta deployment and monitoring                         | Planned                      |
 
-See the [whitepaper](../../mappers_whitepaper.md) for the full milestone breakdown and economic model.
+See the [whitepaper](../../mappers_whitepaper.md) for the broader protocol design, economic model, and security analysis.
 
----
-
-*Built on Solana. Open infrastructure for the future of work. Licensed under [MIT](../../LICENSE).*
+_Built on Solana. Open infrastructure for programmable work settlement. Licensed under [MIT](../../LICENSE)._

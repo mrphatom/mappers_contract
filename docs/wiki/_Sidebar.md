@@ -3,13 +3,16 @@
 - [Overview](Home)
 - [Architecture](Architecture)
 - [Getting Started](Getting-Started)
+- [Release Notes](Release-Notes)
 
 **Reference**
+
 - [SDK Reference](SDK-Reference)
 - [API Reference](API-Reference)
 - [Dashboard](Dashboard)
 
 **Contributing**
+
 - [Development Guide](Development-Guide)
 - [Glossary](Glossary)
 

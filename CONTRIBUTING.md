@@ -6,15 +6,15 @@ Thanks for your interest in contributing. Mappers is early-stage, single-maintai
 
 1. Read [Getting Started](docs/wiki/Getting-Started.md) for the full local setup guide.
 2. Fork the repo and clone your fork.
-3. Run `pnpm install` at the root, then `cd oracle && npm install` for the oracle service.
+3. Run `pnpm install` at the root. Oracle is included in the same workspace and must not receive a separate npm install or package-lock file.
 4. Create a branch: `git checkout -b fix/short-description` or `feat/short-description`.
 
 ## Before Opening a PR
 
 - Run `pnpm run typecheck` and `pnpm run build` — both must pass.
+- Run `pnpm run typecheck:oracle` and `pnpm run test:oracle` when changing Oracle or shared workspace dependencies.
 - If you touched `programs/project_mappers/`, run `anchor test` locally and confirm it passes.
-- If you touched `oracle/`, run `npm run test:coverage` inside `oracle/`.
-- Run `npx prettier --check .` and fix any formatting issues.
+- Run `pnpm exec prettier --check .` and fix any formatting issues.
 - Keep PRs scoped to one logical change. Large, multi-concern PRs are harder to review and more likely to be rejected.
 
 ## Commit Style

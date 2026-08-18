@@ -1,109 +1,76 @@
 # Getting Started
 
-This page covers everything you need to run the Mappers Protocol stack locally: prerequisites, workspace setup, starting each service, and running tests.
-
----
+This guide covers local development for the Mappers Protocol stack: prerequisites, workspace installation, service startup, database setup, and validation.
 
 ## Prerequisites
 
-| Tool | Version | Purpose |
-|---|---|---|
-| [Rust](https://rustup.rs/) | stable | Smart contract compilation |
-| [Solana CLI](https://docs.solanalabs.com/cli/install) | 1.18+ | Cluster management, keypair generation |
-| [Anchor CLI](https://www.anchor-lang.com/docs/installation) | 0.30 | Program build and test framework |
-| [Node.js](https://nodejs.org/) | 18+ | Oracle, API server, dashboard |
-| [pnpm](https://pnpm.io/) | 9+ | Workspace package manager |
-| [PostgreSQL](https://www.postgresql.org/) | 14+ | API server database |
-
----
+| Tool                                                        | Supported baseline                                    | Purpose                         |
+| ----------------------------------------------------------- | ----------------------------------------------------- | ------------------------------- |
+| [Rust](https://rustup.rs/)                                  | Stable plus the Anchor-compatible toolchain           | Smart contract compilation      |
+| [Solana CLI](https://docs.solanalabs.com/cli/install)       | 1.18-compatible                                       | Cluster management and keypairs |
+| [Anchor CLI](https://www.anchor-lang.com/docs/installation) | Compatible with the repository’s Anchor configuration | Program build and tests         |
+| [Node.js](https://nodejs.org/)                              | 22 or newer                                           | Workspace tools and services    |
+| [pnpm](https://pnpm.io/)                                    | 11 or newer                                           | Root workspace package manager  |
+| [PostgreSQL](https://www.postgresql.org/)                   | 14 or newer                                           | API server database             |
 
 ## Quick Start
 
 ```bash
-# Clone the repository
 git clone https://github.com/mrphatom/mappers_contract.git
 cd mappers_contract
-
-# Install all workspace dependencies
 pnpm install
-
-# Type-check and build all packages
+pnpm run typecheck:libs
 pnpm run build
+pnpm run typecheck:oracle
+pnpm run test:oracle
 ```
 
----
+The repository uses one root `pnpm-lock.yaml`. The Oracle is a workspace package, and `pnpm install` is the supported installation command for the complete repository. The root preinstall guard rejects npm and yarn installs.
 
 ## Repository Structure
 
-```
+```text
 mappers_contract/
 |-- programs/project_mappers/     Anchor smart contract (Rust)
-|-- oracle/                       Off-chain AI oracle service
-|-- apps/
-|   |-- api-server/               Express 5 REST API
-|   |-- dashboard/                React frontend
-|-- lib/
-|   |-- sdk/                      @mappers-protocol/sdk
-|   |-- db/                       Drizzle schema + migrations
-|   |-- api-zod/                  Shared Zod validation schemas
-|   |-- api-spec/                 OpenAPI spec + code generation
-|   |-- api-client-react/         Generated TanStack Query hooks
+|-- oracle/                       Off-chain verification service (workspace)
+|-- apps/api-server/              Express 5 REST API
+|-- apps/dashboard/               React 19 frontend
+|-- lib/                          SDK, database, schemas, and generated clients
 |-- tests/                        Anchor integration tests
-|-- scripts/                      E2E devnet scripts
-|-- docs/wiki/                    This documentation
+|-- scripts/                      Devnet and integration scripts
+|-- docs/wiki/                    Version-controlled wiki source
 ```
 
----
-
-## Running the Smart Contract Tests
+## Running Smart Contract Tests
 
 ```bash
-# Run Anchor test suite against localnet
 pnpm run test:anchor
-
-# Or use Anchor directly
+# Equivalent direct command:
 anchor test
-
-# Run against devnet
-anchor test --provider.cluster devnet
 ```
 
-The test suite exercises the full job lifecycle: initialization, payment release, and cancellation, including error cases.
-
----
+The test suite runs against localnet by default and covers job initialization, settlement, cancellation, validation errors, PDA derivation, and terminal-state protections. A Devnet run can be selected with `anchor test --provider.cluster devnet` when the required wallet and environment are available.
 
 ## Running the API Server
 
-The API server requires a PostgreSQL database.
-
-### 1. Set up PostgreSQL
-
-Create a database and set the connection string:
+Create a PostgreSQL database and configure the connection string before starting the API:
 
 ```bash
 createdb mappers_dev
 export DATABASE_URL="postgresql://localhost:5432/mappers_dev"
+export ORACLE_URL="http://localhost:3001"
 ```
 
-### 2. Push the database schema
+Push the current Drizzle schema from the root workspace:
 
 ```bash
 cd lib/db
 pnpm run push
-```
-
-This uses Drizzle Kit to push the schema to your database (creates the `jobs` table with the correct columns and enums).
-
-### 3. Start the server
-
-```bash
-cd apps/api-server
+cd ../../apps/api-server
 pnpm run dev
 ```
 
-The server starts on port 3000 (configurable via `PORT` env var). You should see structured JSON logs from Pino indicating the server is listening.
-
----
+The API listens on port 3000 by default. `ORACLE_URL` must be an explicitly configured HTTP(S) URL accepted by the API’s job-processing path.
 
 ## Running the Dashboard
 
@@ -112,147 +79,81 @@ cd apps/dashboard
 pnpm run dev
 ```
 
-The dashboard starts on `http://localhost:5173` by default. It expects the API server to be running at `http://localhost:3000` (or wherever you configure it).
-
-### Build for production
-
-```bash
-cd apps/dashboard
-pnpm run build
-pnpm run serve   # Preview the production build
-```
-
----
+The Vite development server uses port 5173 by default. The dashboard expects the API server at its configured local URL.
 
 ## Running the Oracle
 
-The oracle is a standalone Node.js service in the `oracle/` directory (not part of the pnpm workspace).
+The Oracle is now a first-class member of the root pnpm workspace:
 
 ```bash
+cp oracle/.env.example oracle/.env
 cd oracle
-npm install
-cp .env.example .env
+pnpm run dev
 ```
 
-Fill in the required environment variables:
+The Oracle service requires the following environment values:
 
-| Variable | Description |
-|---|---|
-| `SOLANA_RPC_URL` | Solana RPC endpoint (Helius recommended) |
-| `PROGRAM_ID` | Mappers program ID (`52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu`) |
-| `ORACLE_PRIVATE_KEY` | Base58-encoded oracle keypair |
-| `HELIUS_GRPC_ENDPOINT` | Helius gRPC streaming URL |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `ANTHROPIC_API_KEY` | Anthropic Claude API key |
+| Variable               | Description                                              |
+| ---------------------- | -------------------------------------------------------- |
+| `SOLANA_RPC_URL`       | Solana RPC endpoint                                      |
+| `PROGRAM_ID`           | Mappers program address                                  |
+| `ORACLE_PRIVATE_KEY`   | Base58-encoded Oracle authority keypair; never commit it |
+| `HELIUS_GRPC_ENDPOINT` | Yellowstone gRPC streaming endpoint                      |
+| `GEMINI_API_KEY`       | Google Gemini credentials                                |
+| `ANTHROPIC_API_KEY`    | Anthropic Claude credentials                             |
 
-Then start:
-
-```bash
-npm run dev
-```
-
-The oracle exposes an HTTP API on port 3001 (configurable).
-
----
-
-## Environment Variables Summary
-
-### API Server (`apps/api-server/`)
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | Server listen port |
-| `DATABASE_URL` | — | PostgreSQL connection string |
-| `ORACLE_URL` | `http://localhost:3001` | Oracle middleware URL |
-| `NODE_ENV` | `development` | Environment mode |
-
-### Dashboard (`apps/dashboard/`)
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `5173` | Vite dev server port |
-| `BASE_PATH` | `/` | Base path for deployment |
-
-### Oracle (`oracle/`)
-
-| Variable | Description |
-|---|---|
-| `SOLANA_RPC_URL` | Solana RPC endpoint |
-| `PROGRAM_ID` | On-chain program address |
-| `ORACLE_PRIVATE_KEY` | Oracle authority keypair |
-| `HELIUS_GRPC_ENDPOINT` | gRPC streaming endpoint |
-| `GEMINI_API_KEY` | Gemini API credentials |
-| `ANTHROPIC_API_KEY` | Claude API credentials |
-
----
+The Oracle exposes health, job-tracking, and submission endpoints on its configured port, commonly 3001. Use `pnpm run typecheck:oracle` and `pnpm run test:oracle` from the repository root for its strict checks and test suite.
 
 ## Workspace Commands
 
 Run these from the repository root:
 
-| Command | Description |
-|---|---|
-| `pnpm install` | Install all workspace dependencies |
-| `pnpm run build` | Type-check libs, then build all packages |
-| `pnpm run typecheck` | Type-check all packages without building |
-| `pnpm run typecheck:libs` | Type-check only lib/ packages (fast) |
-| `pnpm run test:anchor` | Run Anchor integration tests |
-
----
+| Command                          | Description                                    |
+| -------------------------------- | ---------------------------------------------- |
+| `pnpm install`                   | Install all workspace dependencies             |
+| `pnpm install --frozen-lockfile` | Reproduce CI installation exactly              |
+| `pnpm run typecheck:libs`        | Typecheck shared libraries                     |
+| `pnpm run typecheck`             | Typecheck libraries, apps, scripts, and Oracle |
+| `pnpm run build`                 | Typecheck and build all packages               |
+| `pnpm run typecheck:oracle`      | Strictly typecheck Oracle                      |
+| `pnpm run test:oracle`           | Run the Oracle Vitest suite                    |
+| `pnpm run test:anchor`           | Run Anchor integration tests                   |
+| `pnpm exec prettier --check .`   | Check repository formatting                    |
 
 ## Code Generation
 
-The API contract is defined in `lib/api-spec/` as an OpenAPI specification. From it, [orval](https://orval.dev/) generates:
-
-- **`lib/api-zod/`** — Zod validation schemas used by the API server
-- **`lib/api-client-react/`** — TanStack Query hooks used by the dashboard
-
-To regenerate after changing the spec:
+The OpenAPI contract lives in `lib/api-spec/`. After changing it, regenerate the shared Zod schemas and React Query hooks:
 
 ```bash
 cd lib/api-spec
 pnpm run codegen
 ```
 
-This regenerates both downstream packages and runs a type-check to verify everything is consistent.
+Generated files in `lib/api-zod/` and `lib/api-client-react/` should not be edited manually.
 
----
+## End-to-End Devnet Flow
 
-## End-to-End Demo (Devnet)
-
-Run the oracle in one terminal, then execute the integration script:
+Start the Oracle in one terminal, then run the integration script from another:
 
 ```bash
-# Terminal 1 — start the oracle
-cd oracle && npm run dev
+# Terminal 1
+cd oracle && pnpm run dev
 
-# Terminal 2 — run the E2E script
-npx ts-node scripts/e2e-devnet.ts
+# Terminal 2
+pnpm exec ts-node scripts/e2e-devnet.ts
 ```
 
-This exercises the full flow: job creation on-chain, oracle detection, AI verification, and on-chain settlement.
-
----
+The flow requires a funded Devnet wallet, valid RPC and gRPC endpoints, Oracle credentials, and the deployed program ID.
 
 ## Deployment
 
-| Network | Program ID | Status |
-|---|---|---|
-| Devnet | `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu` | Live |
-| Mainnet-Beta | TBD | Pending |
-
----
+| Network      | Program ID                                     | Status       |
+| ------------ | ---------------------------------------------- | ------------ |
+| Devnet       | `52yt1gCbPeiKP4JYjUVKmMJSgBMMcUx8xRGqozMKX2Mu` | Live         |
+| Mainnet-Beta | TBD                                            | Not deployed |
 
 ## Troubleshooting
 
-**pnpm install fails** — Make sure you're using pnpm (not npm or yarn). The workspace enforces this via a `preinstall` script.
+If installation fails, confirm that pnpm 11 is active and remove stale `node_modules` directories before retrying. Do not restore `oracle/package-lock.json`; the root pnpm lockfile is authoritative. If library typechecking fails, run `pnpm run typecheck:libs` first because the application packages consume those project references. If the Oracle does not detect jobs, verify the gRPC endpoint, program ID, RPC endpoint, and Oracle key. If the API cannot reach the Oracle, validate that `ORACLE_URL` is a complete HTTP(S) URL.
 
-**Type-check errors in lib packages** — Run `pnpm run typecheck:libs` first. The lib packages use TypeScript composite project references and must be built in dependency order.
-
-**Database connection refused** — Ensure PostgreSQL is running and `DATABASE_URL` is set correctly.
-
-**Oracle not detecting jobs** — Verify `HELIUS_GRPC_ENDPOINT` is valid and the `PROGRAM_ID` matches your deployment.
-
----
-
-See the [API Reference](API-Reference.md) for endpoint details, [SDK Reference](SDK-Reference.md) for programmatic usage, or the [Architecture](Architecture.md) page for how the pieces fit together.
+See [Architecture](Architecture.md), [Development Guide](Development-Guide.md), and [Release Notes](Release-Notes.md) for the next level of detail.

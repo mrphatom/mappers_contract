@@ -40,7 +40,7 @@ Definitions of core terms, accounts, roles, states, infrastructure, and error co
 
 **Oracle** — The authorized AI middleware key that can autonomously call `release_payment` or `cancel_job` based on AI consensus. A multisig in production deployments.
 
-**Manus AI Pro** — The off-chain orchestrator that dispatches verification requests to the Gemini and Claude APIs and computes consensus.
+**Oracle Middleware** — The off-chain Node.js workspace service that listens for escrow activity, validates submissions, dispatches Gemini and Claude verification requests, computes consensus, and signs authorized settlement transactions.
 
 ---
 
@@ -124,35 +124,35 @@ State transitions are irreversible; there is no re-open path after a terminal st
 
 **`jobs` table** — The PostgreSQL table mirroring on-chain escrow state for efficient querying:
 
-| Column | Type | Description |
-|---|---|---|
-| `id` | serial | Auto-increment primary key |
-| `job_id` | text (unique) | Matches on-chain job ID |
-| `client_pubkey` | text | Client wallet address |
-| `freelancer_pubkey` | text | Freelancer wallet address |
-| `oracle_pubkey` | text | Oracle authority address |
-| `amount_lamports` | text | Escrowed amount (string for u64 safety) |
-| `status` | enum | `pending`, `completed`, `cancelled` |
-| `description` | text (nullable) | Job description |
-| `acceptance_criteria` | text (nullable) | JSON-encoded criteria array |
-| `tx_sig` | text (nullable) | Most recent transaction signature |
-| `created_at` | timestamptz | Creation time |
-| `updated_at` | timestamptz | Last update time |
+| Column                | Type            | Description                             |
+| --------------------- | --------------- | --------------------------------------- |
+| `id`                  | serial          | Auto-increment primary key              |
+| `job_id`              | text (unique)   | Matches on-chain job ID                 |
+| `client_pubkey`       | text            | Client wallet address                   |
+| `freelancer_pubkey`   | text            | Freelancer wallet address               |
+| `oracle_pubkey`       | text            | Oracle authority address                |
+| `amount_lamports`     | text            | Escrowed amount (string for u64 safety) |
+| `status`              | enum            | `pending`, `completed`, `cancelled`     |
+| `description`         | text (nullable) | Job description                         |
+| `acceptance_criteria` | text (nullable) | JSON-encoded criteria array             |
+| `tx_sig`              | text (nullable) | Most recent transaction signature       |
+| `created_at`          | timestamptz     | Creation time                           |
+| `updated_at`          | timestamptz     | Last update time                        |
 
 ---
 
 ## Error Codes (On-Chain)
 
-| Code | Name | Condition |
-|---|---|---|
-| 6000 | `JobIdTooLong` | `job_id.len() > 32` |
-| 6001 | `InvalidAmount` | `amount == 0` |
+| Code | Name                       | Condition                                          |
+| ---- | -------------------------- | -------------------------------------------------- |
+| 6000 | `JobIdTooLong`             | `job_id.len() > 32`                                |
+| 6001 | `InvalidAmount`            | `amount == 0`                                      |
 | 6002 | `AmountBelowRentExemption` | `amount < rent_exempt_minimum` (~890,880 lamports) |
-| 6003 | `JobNotPending` | `status != Pending` (job already resolved) |
-| 6004 | `UnauthorizedExecution` | Caller is not client or oracle |
-| 6005 | `InvalidFreelancerTarget` | Passed freelancer != stored freelancer |
-| 6006 | `InvalidOracleAuthority` | Caller is not stored oracle |
-| 6007 | `InvalidClientAuthority` | Passed client != stored client |
+| 6003 | `JobNotPending`            | `status != Pending` (job already resolved)         |
+| 6004 | `UnauthorizedExecution`    | Caller is not client or oracle                     |
+| 6005 | `InvalidFreelancerTarget`  | Passed freelancer != stored freelancer             |
+| 6006 | `InvalidOracleAuthority`   | Caller is not stored oracle                        |
+| 6007 | `InvalidClientAuthority`   | Passed client != stored client                     |
 
 ---
 

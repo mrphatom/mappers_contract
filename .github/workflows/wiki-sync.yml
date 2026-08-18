@@ -23,10 +23,10 @@ jobs:
           repository: ${{ github.repository }}.wiki
           path: wiki
 
-      - name: Copy docs to wiki
+      - name: Copy wiki source pages
         run: |
-          rm -rf wiki/*
-          cp -r docs/* wiki/
+          find wiki -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+          cp -a docs/wiki/. wiki/
 
       - name: Commit and push wiki
         run: |
@@ -34,5 +34,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .
-          git commit -m "sync docs to wiki" || exit 0
+          git commit -m "docs: sync wiki from docs/wiki" || exit 0
           git push

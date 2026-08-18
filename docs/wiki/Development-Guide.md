@@ -6,15 +6,16 @@ This guide covers the development workflow for contributing to the Mappers Proto
 
 ## Workspace Overview
 
-Mappers uses **pnpm workspaces** to manage a monorepo with three categories of packages:
+Mappers uses **pnpm workspaces** to manage the repository:
 
-| Category | Path | Purpose |
-|---|---|---|
-| Applications | `apps/*` | Deployable services (API server, dashboard) |
-| Libraries | `lib/*` | Shared packages consumed by apps |
-| Infrastructure | `programs/`, `oracle/`, `tests/`, `scripts/` | Smart contract, oracle, and test code |
+| Category          | Path                 | Purpose                                       |
+| ----------------- | -------------------- | --------------------------------------------- |
+| Applications      | `apps/*`             | Deployable services (API server, dashboard)   |
+| Libraries         | `lib/*`              | Shared packages consumed by apps              |
+| Oracle            | `oracle/`            | Workspace package for verification middleware |
+| Tooling and tests | `scripts/`, `tests/` | Integration scripts and Anchor tests          |
 
-The workspace is defined in `pnpm-workspace.yaml`. Only packages listed under `packages:` participate in the workspace.
+The workspace is defined in `pnpm-workspace.yaml`. The Oracle is intentionally included as a root workspace package so its dependencies resolve through the authoritative `pnpm-lock.yaml` and Dependabot can update it from the root workspace.
 
 ---
 
@@ -57,7 +58,7 @@ lib/api-spec (OpenAPI definition)
   |
   |-- codegen --> lib/api-zod (Zod schemas)
   |-- codegen --> lib/api-client-react (React Query hooks)
-  
+
 lib/db (Drizzle schema)
 lib/sdk (MappersClient + OracleClient)
 
@@ -84,8 +85,12 @@ The workspace uses **composite project references** for fast incremental builds:
 # Check only lib packages (fast, no app code)
 pnpm run typecheck:libs
 
-# Check everything (libs first, then apps)
+# Check everything, including the Oracle workspace package
 pnpm run typecheck
+
+# Check and test Oracle explicitly
+pnpm run typecheck:oracle
+pnpm run test:oracle
 
 # Full build (typecheck + package builds)
 pnpm run build
@@ -143,9 +148,9 @@ The schema is defined in `lib/db/src/schema/`. Each table has a dedicated file:
 ```typescript
 // lib/db/src/schema/jobs.ts
 export const jobsTable = pgTable("jobs", {
-  id:             serial("id").primaryKey(),
-  jobId:          text("job_id").notNull().unique(),
-  clientPubkey:   text("client_pubkey").notNull(),
+  id: serial("id").primaryKey(),
+  jobId: text("job_id").notNull().unique(),
+  clientPubkey: text("client_pubkey").notNull(),
   // ...
 });
 ```
@@ -201,15 +206,22 @@ The program IDL is output to `idl.json` at the repo root and also copied to `ora
 
 ## Oracle Development
 
-The oracle is a standalone Node.js service (not in the pnpm workspace):
+The Oracle is a Node.js service and a first-class root pnpm workspace package:
 
 ```bash
+pnpm install
 cd oracle
-npm install
-npm run dev
+pnpm run dev
 ```
 
-It uses its own `package.json` and `tsconfig.json`. Changes to the oracle do not require rebuilding workspace packages.
+Use the root scripts for strict validation:
+
+```bash
+pnpm run typecheck:oracle
+pnpm run test:oracle
+```
+
+Oracle dependencies are recorded in the root `pnpm-lock.yaml`. Do not create or restore a nested `oracle/package-lock.json`.
 
 ---
 
@@ -255,18 +267,20 @@ If you absolutely must install a package within its first 24 hours, add it to `m
 
 ## Common Tasks
 
-| Task | Command |
-|---|---|
-| Install dependencies | `pnpm install` |
-| Full build | `pnpm run build` |
-| Type-check only | `pnpm run typecheck` |
-| Run anchor tests | `pnpm run test:anchor` |
-| Start API server | `cd apps/api-server && pnpm run dev` |
-| Start dashboard | `cd apps/dashboard && pnpm run dev` |
-| Start oracle | `cd oracle && npm run dev` |
-| Push DB schema | `cd lib/db && pnpm run push` |
-| Regenerate API code | `cd lib/api-spec && pnpm run codegen` |
-| Format code | `npx prettier --write .` |
+| Task                    | Command                               |
+| ----------------------- | ------------------------------------- |
+| Install dependencies    | `pnpm install`                        |
+| Full build              | `pnpm run build`                      |
+| Type-check all packages | `pnpm run typecheck`                  |
+| Type-check Oracle       | `pnpm run typecheck:oracle`           |
+| Test Oracle             | `pnpm run test:oracle`                |
+| Run Anchor tests        | `pnpm run test:anchor`                |
+| Start API server        | `cd apps/api-server && pnpm run dev`  |
+| Start dashboard         | `cd apps/dashboard && pnpm run dev`   |
+| Start Oracle            | `cd oracle && pnpm run dev`           |
+| Push DB schema          | `cd lib/db && pnpm run push`          |
+| Regenerate API code     | `cd lib/api-spec && pnpm run codegen` |
+| Format code             | `pnpm exec prettier --write .`        |
 
 ---
 
