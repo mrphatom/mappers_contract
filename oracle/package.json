@@ -13,12 +13,12 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
+    "@anthropic-ai/sdk": "^0.120.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@google/generative-ai": "^0.24.1",
     "@sentry/node": "^10.70.0",
     "@solana/web3.js": "^1.98.4",
-    "@triton-one/yellowstone-grpc": "^5.0.9",
+    "@triton-one/yellowstone-grpc": "^6.0.0",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "cors": "^2.8.5",
@@ -38,6 +38,6 @@
     "supertest": "^7.2.2",
     "ts-node": "^10.9.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   }
 }
