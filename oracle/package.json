@@ -13,31 +13,31 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
+    "@anthropic-ai/sdk": "^0.128.0",
     "@coral-xyz/anchor": "^0.32.1",
     "@google/generative-ai": "^0.24.1",
-    "@sentry/node": "^10.70.0",
-    "@solana/web3.js": "^1.98.4",
-    "@triton-one/yellowstone-grpc": "^5.0.9",
+    "@sentry/node": "^11.0.0",
+    "@solana/web3.js": "^1.99.0",
+    "@triton-one/yellowstone-grpc": "^7.0.1",
     "bn.js": "^5.2.2",
     "bs58": "^6.0.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.4.2",
+    "dotenv": "^18.0.3",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.6.2",
+    "express-rate-limit": "^8.7.0",
     "helmet": "^8.3.0",
     "tweetnacl": "^1.0.3",
-    "zod": "^4.4.3"
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/bn.js": "^5.2.0",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.6",
-    "@types/node": "^26.2.0",
+    "@types/node": "^26.6.2",
     "@types/supertest": "^7.2.1",
-    "supertest": "^7.2.2",
+    "supertest": "^7.3.0",
     "ts-node": "^10.9.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^5.0.1"
   }
 }
